@@ -53,7 +53,7 @@ Everything is a pure function of time, so renders are frame-exact and resumable.
 
 ## Rendering
 
-Requires Node 18+ and `ffmpeg`. Playwright drives Chromium. In a GPU-less container it uses SwiftShader (≈2–3 s per 1080p frame).
+Requires Node 18+ and `ffmpeg`. Playwright drives Chromium. In a GPU-less container it uses SwiftShader: about 3–6 s per 1080p frame per worker on 4 CPU cores, so roughly 1.5 h for the whole 1080p film with `--workers 2` and around 6× that for native UHD. With a GPU (`--gpu`) it renders in minutes.
 
 ```bash
 npm install
