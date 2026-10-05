@@ -5,3 +5,5 @@ renders/*.wav
 renders/draft*.mp4
 *.tmp
 .DS_Store
+renders/*.log
+renders/review/
