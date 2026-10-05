@@ -50,7 +50,7 @@ function encode() {
     const args = ['-y', '-framerate', String(FPS), '-start_number', String(Math.round(FROM * FPS)), '-i', path.join(FRAMES, 'f%05d.jpg')];
     if (fs.existsSync(WAV)) args.push('-ss', String(FROM), '-i', WAV);
     args.push('-frames:v', String(Math.round((TO - FROM) * FPS)), '-c:v', 'libx264', '-preset', 'slow', '-crf', H > 1500 ? '16' : '17', '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-tune', 'film', '-movflags', '+faststart', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709');
-    if (fs.existsSync(WAV)) args.push('-c:a', 'aac', '-b:a', '320k', '-shortest');
+    if (fs.existsSync(WAV)) args.push('-af', 'loudnorm=I=-16:TP=-1.5:LRA=18', '-ar', '48000', '-c:a', 'aac', '-b:a', '320k', '-shortest');
     args.push(OUT); console.log('ffmpeg', args.join(' '));
     const p = spawn('ffmpeg', args, { stdio: ['ignore', 'inherit', 'inherit'] }); p.on('exit', (c) => (c === 0 ? resolve() : reject(new Error(`ffmpeg exited ${c}`))));
   });
