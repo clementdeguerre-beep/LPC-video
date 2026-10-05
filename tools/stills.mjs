@@ -9,7 +9,7 @@ const times = (args.t || '0').split(',').map(Number);
 const { port, close } = await serve();
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: W, height: H } });
-page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log('[page]', m.text()); });
+page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning' || m.text().startsWith('[asset]')) console.log('[page]', m.text()); });
 page.on('pageerror', (e) => { console.log('[pageerror]', e.message, e.stack); process.exit(1); });
 const q = new URLSearchParams({ render: '1', w: W, h: H }); if (args.only) q.set('only', args.only); if (args.q) for (const kv of args.q.split('&')) { const [k, v] = kv.split('='); q.set(k, v); }
 const t0 = Date.now();

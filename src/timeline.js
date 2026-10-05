@@ -18,6 +18,7 @@ export const TITLES = [
 ];
 
 export async function buildTimeline(ctx) {
+  if (ctx.params?.has('asset')) { const { buildAssetPreview } = await import('./scenes/preview.js'); return buildAssetPreview(ctx); }
   const only = ctx.only ? ctx.only.split(',') : null; const want = (k) => !only || only.includes(k);
   const shots = []; const prog = (m) => ctx.onProgress?.(m);
   const scenes = [['s1', buildS1], ['s2', buildS2], ['s3', buildS3], ['s4', buildS4], ['s5', buildS5], ['s6', buildS6], ['s7', buildS7], ['s8', buildS8], ['s9', buildS9]];

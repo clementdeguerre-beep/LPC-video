@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { Pipeline, TRANSITIONS } from './engine/pipeline.js';
 import { initMaterials } from './engine/materials.js';
+import { initAssets } from './engine/assets.js';
 import { Titles } from './engine/titles.js';
 import { lerp, clamp, smooth } from './engine/util.js';
 
@@ -24,7 +25,7 @@ export class Film {
     this.renderer.setPixelRatio(1); this.renderer.setSize(width, height, false);
     this.renderer.toneMapping = THREE.NoToneMapping; this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     this.renderer.shadowMap.enabled = false; this.renderer.info.autoReset = true;
-    initMaterials(this.renderer);
+    initMaterials(this.renderer); initAssets(this.renderer);
     this.pipe = new Pipeline(this.renderer, width, height);
     this.shots = []; this.duration = 90; this.fps = 24;
   }

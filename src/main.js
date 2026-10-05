@@ -14,7 +14,7 @@ const status = document.getElementById('status');
 await Promise.all([400, 500, 600].map((w) => document.fonts.load(`${w} 48px "Cormorant Garamond"`)));
 if (params.has('msaa')) { const { Pipeline } = await import('./engine/pipeline.js'); Pipeline.MSAA = +params.get('msaa'); }
 const film = new Film(canvas, W, H);
-await film.init((ctx) => buildTimeline({ ...ctx, only: params.get('only') }), (msg) => { status.textContent = msg; });
+await film.init((ctx) => buildTimeline({ ...ctx, only: params.get('only'), params }), (msg) => { status.textContent = msg; });
 
 let audioBuffer = null;
 async function renderAudio() {
