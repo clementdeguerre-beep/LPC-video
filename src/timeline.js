@@ -1,13 +1,14 @@
 // Master timeline: assembles every scene's shots on the 90-second clock, plus title cues.
-import { buildS1 } from './scenes/s1-spark.js';
-import { buildS2 } from './scenes/s2-anatomy.js';
-import { buildS3 } from './scenes/s3-atelier.js';
-import { buildS4 } from './scenes/s4-collection.js';
-import { buildS5 } from './scenes/s5-paddock.js';
-import { buildS6 } from './scenes/s6-road.js';
-import { buildS7 } from './scenes/s7-club.js';
-import { buildS8 } from './scenes/s8-service.js';
-import { buildS9, LOGO } from './scenes/s9-legacy.js';
+import { LOGO } from './scenes/logo.js';
+
+// Scenes are imported lazily so a scene under construction can't break the others (and --only builds just one).
+const SCENES = [
+  ['s1', () => import('./scenes/s1-spark.js').then((m) => m.buildS1)], ['s2', () => import('./scenes/s2-anatomy.js').then((m) => m.buildS2)],
+  ['s3', () => import('./scenes/s3-atelier.js').then((m) => m.buildS3)], ['s4', () => import('./scenes/s4-collection.js').then((m) => m.buildS4)],
+  ['s5', () => import('./scenes/s5-paddock.js').then((m) => m.buildS5)], ['s6', () => import('./scenes/s6-road.js').then((m) => m.buildS6)],
+  ['s7', () => import('./scenes/s7-club.js').then((m) => m.buildS7)], ['s8', () => import('./scenes/s8-service.js').then((m) => m.buildS8)],
+  ['s9', () => import('./scenes/s9-legacy.js').then((m) => m.buildS9)],
+];
 
 export const DURATION = 90;
 
@@ -21,7 +22,6 @@ export async function buildTimeline(ctx) {
   if (ctx.params?.has('asset')) { const { buildAssetPreview } = await import('./scenes/preview.js'); return buildAssetPreview(ctx); }
   const only = ctx.only ? ctx.only.split(',') : null; const want = (k) => !only || only.includes(k);
   const shots = []; const prog = (m) => ctx.onProgress?.(m);
-  const scenes = [['s1', buildS1], ['s2', buildS2], ['s3', buildS3], ['s4', buildS4], ['s5', buildS5], ['s6', buildS6], ['s7', buildS7], ['s8', buildS8], ['s9', buildS9]];
-  for (const [k, fn] of scenes) if (want(k)) { prog(`Building ${k}…`); const r = await fn(ctx); shots.push(...r.shots); }
+  for (const [k, load] of SCENES) if (want(k)) { prog(`Building ${k}…`); const fn = await load(); const r = await fn(ctx); shots.push(...r.shots); }
   return { shots, duration: DURATION, titles: TITLES, fadeIn: 0.5, fadeOutStart: 89.0 };
 }

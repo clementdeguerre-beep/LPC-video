@@ -9,7 +9,8 @@ import { glow } from '../engine/materials.js';
 import { FONT_SERIF } from '../engine/textures.js';
 import { TAU, invLerp } from '../engine/util.js';
 
-export const LOGO = { camY: 0.75, camZ: 9.5, fov: 30, plane: 1.2, titleY: 0.535, titleSize: 46, tracking: 0.42 };
+import { LOGO } from './logo.js';
+export { LOGO };
 
 /** Sample points of the title rendered exactly like the on-screen serif title (1080p reference). */
 function titlePoints(n, r) {
