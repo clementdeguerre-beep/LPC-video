@@ -1,0 +1,7 @@
+node_modules/
+renders/frames_*/
+renders/stills/
+renders/*.wav
+renders/draft*.mp4
+*.tmp
+.DS_Store

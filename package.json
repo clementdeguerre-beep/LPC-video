@@ -1,0 +1,22 @@
+{
+  "name": "legend-paddock-club-film",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Legend Paddock Club — 90-second procedural CGI brand film (Three.js), with a deterministic offline renderer.",
+  "type": "module",
+  "scripts": {
+    "preview": "http-server . -p 5173 -c-1 --silent",
+    "render": "node tools/render.mjs",
+    "render:4k": "node tools/render.mjs --width 3840 --height 2160",
+    "render:draft": "node tools/render.mjs --width 960 --height 540 --out renders/draft.mp4",
+    "stills": "node tools/stills.mjs"
+  },
+  "dependencies": {
+    "@fontsource/cormorant-garamond": "^5.3.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "playwright": "1.56.1"
+  }
+}

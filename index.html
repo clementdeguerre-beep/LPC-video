@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Legend Paddock Club — Brand Film</title>
+  <style>
+    @font-face { font-family: 'Cormorant Garamond'; font-weight: 400; font-style: normal; src: url('assets/fonts/cormorant-garamond-latin-400-normal.woff2') format('woff2'); }
+    @font-face { font-family: 'Cormorant Garamond'; font-weight: 500; font-style: normal; src: url('assets/fonts/cormorant-garamond-latin-500-normal.woff2') format('woff2'); }
+    @font-face { font-family: 'Cormorant Garamond'; font-weight: 600; font-style: normal; src: url('assets/fonts/cormorant-garamond-latin-600-normal.woff2') format('woff2'); }
+    @font-face { font-family: 'Cormorant Garamond'; font-weight: 500; font-style: italic; src: url('assets/fonts/cormorant-garamond-latin-500-italic.woff2') format('woff2'); }
+    :root { --gold: #d4ae6c; --ink: #000; --dim: rgba(244, 226, 184, 0.55); }
+    html, body { margin: 0; height: 100%; background: var(--ink); overflow: hidden; color: var(--gold); font-family: 'Cormorant Garamond', Georgia, serif; }
+    #stage { position: fixed; inset: 0; display: grid; place-items: center; }
+    canvas { width: min(100vw, calc(100vh * 16 / 9)); height: auto; aspect-ratio: 16 / 9; display: block; background: #000; }
+    body.render canvas { width: auto; height: auto; }
+    body.render.offscreen #stage { display: none; }
+    #ui { position: fixed; left: 0; right: 0; bottom: 0; padding: 18px 24px 22px; display: flex; gap: 16px; align-items: center; background: linear-gradient(transparent, rgba(0,0,0,.75)); transition: opacity .6s; letter-spacing: .12em; font-size: 15px; }
+    body.idle #ui { opacity: 0; }
+    body.render #ui, body.render #splash { display: none; }
+    button { background: none; border: 1px solid var(--dim); color: var(--gold); font: inherit; letter-spacing: .14em; padding: 7px 16px; cursor: pointer; text-transform: uppercase; font-size: 12px; }
+    button:hover { border-color: var(--gold); }
+    #bar { flex: 1; height: 2px; background: rgba(212,174,108,.18); position: relative; cursor: pointer; }
+    #bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--gold); width: 0; }
+    #bar b { position: absolute; top: -4px; width: 1px; height: 10px; background: var(--dim); }
+    #time { min-width: 110px; text-align: right; font-variant-numeric: tabular-nums; }
+    #splash { position: fixed; inset: 0; display: grid; place-items: center; background: #000; z-index: 5; text-align: center; transition: opacity .8s; }
+    #splash h1 { font-weight: 500; letter-spacing: .38em; font-size: clamp(20px, 3vw, 34px); margin: 0 0 14px; }
+    #splash p { color: var(--dim); letter-spacing: .3em; font-size: 13px; margin: 0 0 28px; text-transform: uppercase; }
+    #splash.gone { opacity: 0; pointer-events: none; }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <div id="stage"><canvas id="film"></canvas></div>
+  <div id="splash"><div><h1>LEGEND PADDOCK CLUB</h1><p id="status">Preparing the film…</p><button id="play" disabled>Play with sound</button></div></div>
+  <div id="ui"><button id="toggle">Pause</button><div id="bar"><i></i></div><span id="time">00:00 / 01:30</span><button id="mute">Sound on</button></div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
