@@ -7,3 +7,5 @@ renders/draft*.mp4
 .DS_Store
 renders/*.log
 renders/review/
+renders/*.mp4
+*.bundle

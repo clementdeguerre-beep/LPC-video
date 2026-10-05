@@ -8,6 +8,9 @@ A 90-second, 16:9, 24 fps cinematic brand film for **Legend Paddock Club**. Ever
 
 ## The film
 
+![Key frames from the 1080p render](docs/contact_sheet.jpg)
+
+
 | | Scene | Pillar | Macro → Wide |
 |---|---|---|---|
 | 0–8 | **The Spark** | | Spark-plug arc → bore dive → hangar aerial |
