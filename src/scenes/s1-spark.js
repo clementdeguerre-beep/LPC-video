@@ -57,7 +57,7 @@ export async function buildS1(ctx) {
   const gap = plug.userData.gap; const arc = new Arc(v3(0, 1.02, 0), v3(0.02, 1.11, 0.01)); sp.scene.add(arc.group);
   const arcLight = point(sp.scene, { color: 0xb8c8ff, intensity: 0, pos: [0, 1.06, 0.15], decay: 2 });
   const flame = flameKernel(); flame.position.copy(gap); flame.scale.setScalar(0.01); sp.scene.add(flame); flame.visible = false;
-  const burst = flameBurst(900, ctx.res); burst.material.uniforms.gain.value = 2.6; burst.position.copy(gap); sp.scene.add(burst);
+  const burst = flameBurst(900, ctx.res); burst.material.uniforms.gain.value = 1.5; burst.position.copy(gap); sp.scene.add(burst);
   const softbox = new THREE.Mesh(new THREE.PlaneGeometry(6, 2), M.emissive(0xfff0dc, 1.2)); softbox.position.set(-1, 3.2, 4); softbox.lookAt(0, 1, 0); sp.scene.add(softbox);
   const flameLight = point(sp.scene, { color: 0xff8a3a, intensity: 0, pos: [0, 1.4, 0], decay: 2 });
   spot(sp.scene, { color: 0x9fb6ff, intensity: 140, pos: [-2.5, 3.5, -3.5], target: [0, 0.8, 0], angle: 0.35, penumbra: 0.7 });
@@ -71,18 +71,18 @@ export async function buildS1(ctx) {
     const k = clamp((t - 1.0) / 1.6); flame.visible = false; flame.scale.setScalar(0.05 + easeInCubic(k) * 6 + k * 0.5);
     flame.userData.set(t, smooth(k * 2) * (0.12 + k * 0.5), smooth(k * 1.3));
     burst.visible = t > 0.95; burst.material.uniforms.tau.value = Math.max(0, t - 0.95) * 0.9; burst.material.uniforms.scale.value = 1.6;
-    flameLight.intensity = smooth(k * 2) * 6 * (1 + k * 3);
+    flameLight.intensity = smooth(k * 2) * 4 * (1 + k * 2);
   });
   shots.push(shot('s1.1', 0, 2.55, sp, keyCam([v3(-1.2, 1.5, 4.2), v3(-0.7, 1.25, 2.8), v3(-0.3, 1.1, 1.7)], [v3(0.15, 0.55, 0), v3(0.12, 0.85, 0), v3(0.1, 1.04, 0)], { fov: 24, aperture: (u) => 6 + u * 10, near: 0.05, far: 60, driftAmp: 0.006 }),
     { trans: { type: 'cut', dur: 0 }, grade: { exposure: 1.1, bloom: 0.55, streak: 0.3, streakTint: [0.6, 0.75, 1.1], threshold: 1.2 } }));
 
   // ---------------------------------------------------------------- 1.2 bore dive
-  const be = makeSet('studio', { envIntensity: 0.55 }); const bottom = buildBottomEnd(); be.scene.add(bottom);
+  const be = makeSet('studio', { envIntensity: 0.9 }); const bottom = buildBottomEnd(); be.scene.add(bottom);
   const chamberGlow = point(be.scene, { color: 0xff8a3a, intensity: 0, pos: [0, 0.08, 0], decay: 2 });
   be.scene.fog = new THREE.FogExp2(0x000000, 2.0);
   spot(be.scene, { color: 0xffc070, intensity: 0.3, pos: [0.4, -0.12, 0.35], target: [0, -0.18, 0], angle: 0.45, penumbra: 0.8 });
   spot(be.scene, { color: 0xb8c8ff, intensity: 0.35, pos: [-0.4, -0.05, -0.3], target: [0, -0.2, 0], angle: 0.5, penumbra: 0.9 });
-  const rim = point(be.scene, { color: 0xffd9a0, intensity: 0.05, pos: [0.12, -0.16, 0.16] });
+  const rim = point(be.scene, { color: 0xffd9a0, intensity: 0.12, pos: [0.12, -0.16, 0.16] });
   point(be.scene, { color: 0xffb060, intensity: 0.04, pos: [-0.1, -0.3, 0.12] });
   spot(be.scene, { color: 0xfff0dc, intensity: 0.25, pos: [0.3, -0.2, 0.25], target: [0, -0.2, 0], angle: 0.35, penumbra: 1 });
   const sparks = dust(be.scene, { count: 30, box: [0, -0.1, 0, 0.3, 0.4, 0.3], size: 0.012, intensity: 1.2, color: 0xffa860, speed: 0.02, res: ctx.res, seed: 8 });
@@ -117,7 +117,7 @@ export async function buildS1(ctx) {
   const hero = buildCar('classic', { fasteners: false });
   const hs = hangarSet(ctx, hero);
   const hc = keyCam(
-    [v3(2.9, 0.62, 1.55), v3(3.4, 0.9, 4.6), v3(0.6, 1.05, 7.4), v3(-1.8, 5.5, 13), v3(-3, 14, 18)],
+    [v3(2.9, 0.62, 1.55), v3(3.4, 0.9, 4.6), v3(0.6, 1.05, 7.4), v3(-1.4, 4.2, 10.5), v3(-2.2, 9, 12.5)],
     [v3(2.1, 0.55, 0.62), v3(1.2, 0.55, 0.3), v3(0.1, 0.55, 0), v3(0, 0.3, 0), v3(0, 0, 0)],
     { fov: (u) => lerp(32, 42, smooth(u)), aperture: (u) => lerp(9, 2, smooth(u * 1.5)), ease: (u) => easeInOutCubic(u) },
   );

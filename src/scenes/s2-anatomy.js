@@ -70,7 +70,7 @@ export async function buildS2(ctx, shared = {}) {
   const shots = [];
   // 2.1 — from the hangar aerial down into an orbit around the separating car
   shots.push(shot('s2.1', 8.0, 12.3, set, keyCam(
-    [v3(-3, 14, 18), v3(-5.5, 5.0, 8.5), v3(-6.6, 2.8, 3.5), v3(-5.4, 2.4, -1.8)],
+    [v3(-2.2, 9, 12.5), v3(-5.0, 4.4, 8.0), v3(-6.4, 2.7, 3.4), v3(-5.4, 2.4, -1.8)],
     [v3(0, 0, 0), v3(0, 0.7, 0), v3(0.2, 0.9, 0), v3(0.3, 0.9, 0)],
     { fov: (u) => lerp(42, 34, smooth(u)), aperture: 1.5, ease: (u) => easeInOutCubic(u) }),
   { trans: { type: 'dissolve', dur: 0.9 }, grade: { exposure: 1.2, bloom: 0.4, streak: 0.2, threshold: 1.4 } }));

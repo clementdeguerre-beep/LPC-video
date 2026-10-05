@@ -28,7 +28,7 @@ export class Titles {
     const measure = (str) => { let x = 0; for (const ch of str) x += g.measureText(ch).width + tracking; return x - tracking; };
     const full = words.join(' '); const totalW = measure(full); let x = w / 2 - totalW / 2;
     // soft black halo so the gold always reads "gold on black", whatever is behind it
-    g.save(); g.globalAlpha = alpha * 0.55; const halo = g.createRadialGradient(w / 2, y, 0, w / 2, y, totalW * 0.75); halo.addColorStop(0, 'rgba(0,0,0,0.9)'); halo.addColorStop(0.6, 'rgba(0,0,0,0.5)'); halo.addColorStop(1, 'rgba(0,0,0,0)');
+    g.save(); g.globalAlpha = alpha * (cue.halo ?? 0.55); const halo = g.createRadialGradient(w / 2, y, 0, w / 2, y, totalW * 0.75); halo.addColorStop(0, 'rgba(0,0,0,0.9)'); halo.addColorStop(0.6, 'rgba(0,0,0,0.5)'); halo.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = halo; g.translate(w / 2, y); g.scale(1, (size * 2.2) / (totalW * 0.75)); g.translate(-w / 2, -y); g.fillRect(0, y - totalW, w, totalW * 2); g.restore();
     const grd = g.createLinearGradient(0, y - size * 0.6, 0, y + size * 0.6);
     grd.addColorStop(0, '#f4e2b8'); grd.addColorStop(0.45, '#d9b273'); grd.addColorStop(0.55, '#c49a58'); grd.addColorStop(1, '#e9cf96');

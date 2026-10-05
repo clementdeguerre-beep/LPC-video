@@ -117,7 +117,7 @@ export const M = {
   velvet: (color = 0x3a0c12) => new THREE.MeshPhysicalMaterial({ color, roughness: 0.95, metalness: 0, sheen: 1, sheenRoughness: 0.35, sheenColor: new THREE.Color(0xc06070) }),
   fabric: (color = 0x16171a) => new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0 }),
   skin: () => memo('skin', () => new THREE.MeshStandardMaterial({ color: 0x8a6a58, roughness: 0.62, metalness: 0 })),
-  glove: () => memo('glove', () => new THREE.MeshPhysicalMaterial({ color: 0x0c0c0e, roughness: 0.42, metalness: 0, sheen: 0.6, sheenColor: new THREE.Color(0x404048), clearcoat: 0.2 })),
+  glove: () => memo('glove', () => new THREE.MeshPhysicalMaterial({ color: 0x9c968c, roughness: 0.9, metalness: 0, sheen: 0.35, sheenRoughness: 0.7, sheenColor: new THREE.Color(0xd8d2c8) })), // white cotton conservator's glove
   mannequin: (color = 0x1a1a1c) => new THREE.MeshPhysicalMaterial({ color, roughness: 0.5, metalness: 0.15, sheen: 0.5, sheenColor: new THREE.Color(0x6a5a48) }),
   floorMirror: (color = 0x050505, rough = 0.28, opacity = 0.84, envI = 0.25) => new THREE.MeshStandardMaterial({ color, metalness: 0.0, roughness: rough, transparent: true, opacity, envMapIntensity: envI }),
   floor: (color = 0x2a2a2a) => new THREE.MeshStandardMaterial({ color, map: T.concrete(), roughness: 0.38, roughnessMap: T.smudge(), metalness: 0.0 }),
