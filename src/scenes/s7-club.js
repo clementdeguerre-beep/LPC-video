@@ -1,21 +1,33 @@
 // SCENE 7 (62–72s) — THE CLUB. Crystal clink, numbered metal card on dark wood, watch on a wrist at
 // the gear lever, a handshake by a car door → the members' lounge: fireplace, leather, cars beyond glass.
 //
-// Realism pass: every macro is lit and reflected by a real photographed interior (Poly Haven HDR
-// panorama, re-graded low-key so only its window and wall sconces survive as light: they glint in
-// the crystal, the titanium, the lacquered walnut and the gold); the handshake car is the photoreal
-// CarConcept in burgundy, mirroring a real industrial hall's ceiling-light rows. Real photo materials
-// (hardwood planks, reclaimed brick) replace the procedural surfaces at true physical scale. The
-// lounge is furnished with photoreal models (carved-wood leather sofa, champagne velvet sofa, silk
-// pouf, Tiffany lamps, flowers, a heritage bellows camera), opens through steel windows onto a real
-// night-sky photograph over lit cars, and is reflected in itself by a probe baked from the room.
-import { THREE, makeSet, spot, point, dust, shot, keyCam, M, v3, clamp, smooth, lerp, rng, aim, easeInOutCubic } from './common.js';
-import { buildFigure, POSES, buildHand } from '../models/figure.js';
+// Realism: the club sits on a real photographed waterfront at sunset (Poly Haven "venice_sunset"). The toast is
+// framed against that very sunset, defocused over the lagoon; the card and the watch are lit and reflected by a real
+// interior panorama re-graded low-key (window and sconces glint in titanium, lacquered walnut and gold). The handshake
+// uses two hands sculpted as signed-distance fields (palm pads, knuckles, tapered phalanges, nails) polygonised into
+// one continuous skin each, with wrapped subsurface shading, beside the photoreal CarConcept in burgundy reflecting
+// a real hall. The lounge opens through steel windows onto the panorama projected on the ground (the cars stand on
+// its stone quay, the photographed sun sets over the water and streams in as a low warm light), with real photo
+// materials (oak planks, timber ceiling, brick) and photoreal furnishings: carved-wood leather sofa, champagne velvet
+// sofa, silk pouf, velvet chairs, Tiffany lamps, flowers, a bellows camera and brushed-brass barn sconces raking the brick.
+import { THREE, makeSet, spot, point, shot, keyCam, M, v3, clamp, smooth, lerp, rng, aim, easeInOutCubic } from './common.js';
+import { buildFigure, POSES } from '../models/figure.js';
 import { mesh, roundBox, lathe } from '../models/geo.js';
 import { glow } from '../engine/materials.js';
 import { drawTexture, drawNormal, drawEmblem, FONT_SERIF, guilloche, fromHeight, fromFn, tex } from '../engine/textures.js';
 import { easeOutCubic, TAU, noise1, fbm2 } from '../engine/util.js';
-import { hdri, HDRI, photo, model, hide, selectVariant } from '../engine/assets.js';
+import { hdri, HDRI, photo, model, hide, selectVariant, groundedBackdrop } from '../engine/assets.js';
+import { MarchingCubes } from 'three/addons/objects/MarchingCubes.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+// Look constants.
+const VIEW = { k: 0.28, rot: -0.25, x: 8, z: 13, clamp: 25, sun: 1.2 }; // lounge view: panorama brightness, yaw, projection centre, sun-disc clamp, sunlight
+const FLOOR_CCR = 0.3; // lounge floor lacquer roughness (spreads the low sun's glare into a soft sheen)
+const HSKIN = 0xa0948f; // skin tint (neutral: the warm light and grade supply the warmth)
+const HAND_RES = 128, HKEY = 1.2, HTILT = 0.04; // hand polygonisation grid, handshake key light, clasp tilt
+const CARD = { aniso: 0.85 }; // brushed titanium card face
+const CP = { blur: 0.08, k: 0.15, rot: 2.35 }; // coupes: sunset backdrop defocus, brightness, yaw (sun just above the clink)
+const SCONCES = [[-6.2, -4.8, 0], [-3.6, -4.8, 0], [2.6, -4.8, 0], [5.3, 3.7, -Math.PI / 2], [5.3, -4.15, -Math.PI / 2]], SC_I = 30; // [x, z of the wall, facing]
 
 // ------------------------------------------------------------------------------------------------
 // Photographic light
@@ -84,7 +96,11 @@ const pores = () => (_pores ??= heightNormal(256, (x, y) => fbm2(x / 3, y / 3, 3
 
 const goldMat = (rough = 0.1, color = 0xe2b872) => new THREE.MeshPhysicalMaterial({ color, metalness: 1, roughness: rough });
 let _skinA = null;
-const skinAlbedo = () => (_skinA ??= tex(fromFn(256, 256, (x, y, o) => { const n = fbm2(x / 18, y / 18, 4, 31, 256 / 18), f = fbm2(x / 3, y / 3, 2, 33, 256 / 3); const k = 0.84 + n * 0.2 + f * 0.06; o[0] = clamp(k * 250, 0, 255); o[1] = clamp(k * (232 - n * 34), 0, 255); o[2] = clamp(k * (220 - n * 40), 0, 255); o[3] = 255; }), { srgb: true }));
+// skin albedo: even tone with soft blotches of redness, faint freckling and pore darkening (no large stains)
+const skinAlbedo = () => (_skinA ??= tex(fromFn(256, 256, (x, y, o) => {
+  const n = fbm2(x / 24, y / 24, 3, 31, 256 / 24), f = fbm2(x / 2.5, y / 2.5, 2, 33, 256 / 2.5), fr = fbm2(x / 6, y / 6, 2, 35, 256 / 6);
+  const red = clamp((n - 0.45) * 2.2) * 0.5, pore = f > 0.72 ? 0.9 : 1, frk = fr > 0.8 ? 0.93 : 1; const k = (0.95 + f * 0.05) * pore * frk;
+  o[0] = clamp(k * 246, 0, 255); o[1] = clamp(k * (226 - red * 26), 0, 255); o[2] = clamp(k * (214 - red * 24), 0, 255); o[3] = 255; }), { srgb: true }));
 const skinMat = () => new THREE.MeshPhysicalMaterial({ color: 0x8c6a5a, map: skinAlbedo(), roughness: 0.6, metalness: 0, normalMap: pores(), normalScale: new THREE.Vector2(0.35, 0.35), sheen: 0.2, sheenRoughness: 0.6, sheenColor: new THREE.Color(0xb08878), clearcoat: 0.06, clearcoatRoughness: 0.45 });
 const woolMat = (color) => { const n = weave().clone(); n.repeat.set(26, 18); return new THREE.MeshPhysicalMaterial({ color, roughness: 0.82, metalness: 0, normalMap: n, normalScale: new THREE.Vector2(0.45, 0.45), sheen: 0.7, sheenRoughness: 0.6, sheenColor: new THREE.Color(color).lerp(new THREE.Color(0x8a8f9a), 0.35) }); };
 const cottonMat = () => { const n = weave().clone(); n.repeat.set(40, 10); return new THREE.MeshPhysicalMaterial({ color: 0xece7de, roughness: 0.78, metalness: 0, normalMap: n, normalScale: new THREE.Vector2(0.3, 0.3), sheen: 0.6, sheenRoughness: 0.5, sheenColor: new THREE.Color(0xffffff) }); };
@@ -278,6 +294,121 @@ function dressFigure(f, { suit = 0x14151a } = {}) {
 }
 
 // ------------------------------------------------------------------------------------------------
+// Sculpted hands: a signed-distance model of a right hand (palm pads, knuckles, tapered phalanges, thumb, nails) blended with
+// smooth unions and polygonised once with marching cubes, so skin flows continuously over every joint like a real hand.
+// Local frame: wrist at the origin, fingers toward +x, thumb up (+y), back of the hand toward +z (palm faces -z).
+
+const smin = (a, b, k) => { const h = Math.max(k - Math.abs(a - b), 0) / k; return Math.min(a, b) - h * h * k * 0.25; };
+/** Tapered capsule a→b (radius ra→rb) as [ax,ay,az, bx,by,bz, ra,rb, bax,bay,baz, 1/|ba|²]. */
+const cap = (a, b, ra, rb) => { const ba = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]; return [...a, ...b, ra, rb, ...ba, 1 / (ba[0] ** 2 + ba[1] ** 2 + ba[2] ** 2)]; };
+function dCap(c, x, y, z) {
+  const px = x - c[0], py = y - c[1], pz = z - c[2]; let h = (px * c[8] + py * c[9] + pz * c[10]) * c[11]; h = h < 0 ? 0 : h > 1 ? 1 : h;
+  const dx = px - c[8] * h, dy = py - c[9] * h, dz = pz - c[10] * h; return Math.sqrt(dx * dx + dy * dy + dz * dz) - (c[6] + (c[7] - c[6]) * h);
+}
+const dEll = (x, y, z, c, r) => { const ax = (x - c[0]) / r[0], ay = (y - c[1]) / r[1], az = (z - c[2]) / r[2]; const k0 = Math.sqrt(ax * ax + ay * ay + az * az), k1 = Math.sqrt((ax / r[0]) ** 2 + (ay / r[1]) ** 2 + (az / r[2]) ** 2); return (k0 * (k0 - 1)) / (k1 || 1e-9); };
+
+/** Pose of a right hand gripping another hand: joint chains for fingers and thumb, nail frames. */
+function gripPose({ flex = [[0.72, 1.2, 0.55], [0.76, 1.22, 0.55], [0.8, 1.25, 0.58], [0.88, 1.28, 0.6]] } = {}) {
+  const F = [
+    { m: [0.092, 0.024, 0.0], L: [0.043, 0.025, 0.019], r: [0.0098, 0.0088, 0.0078, 0.0068], yaw: -0.05 },
+    { m: [0.096, 0.005, 0.0], L: [0.047, 0.029, 0.021], r: [0.0102, 0.0092, 0.008, 0.007], yaw: 0 },
+    { m: [0.093, -0.0135, 0.0], L: [0.044, 0.027, 0.02], r: [0.0096, 0.0086, 0.0076, 0.0066], yaw: 0.04 },
+    { m: [0.085, -0.0295, -0.001], L: [0.035, 0.021, 0.018], r: [0.0086, 0.0077, 0.0069, 0.006], yaw: 0.1 },
+  ];
+  const fingers = F.map((f, i) => {
+    let p = f.m, phi = 0; const segs = [], joints = [p];
+    for (let k = 0; k < 3; k++) {
+      phi += flex[i][k]; const d = [Math.cos(phi) * Math.cos(f.yaw), Math.sin(f.yaw) * Math.cos(phi), -Math.sin(phi)];
+      const q = [p[0] + d[0] * f.L[k], p[1] + d[1] * f.L[k], p[2] + d[2] * f.L[k]]; segs.push(cap(p, q, f.r[k], f.r[k + 1])); joints.push(q);
+      if (k === 2) { const n = [Math.sin(phi), 0, Math.cos(phi)]; fingers_nail(f, q, d, n); }
+      p = q;
+    }
+    return { segs, joints, r: f.r, nail: f.nail };
+  });
+  function fingers_nail(f, tip, d, n) { const r = f.r[3]; f.nail = { c: [tip[0] - d[0] * 0.006 + n[0] * r * 0.8, tip[1] - d[1] * 0.006 + n[1] * r * 0.8, tip[2] - d[2] * 0.006 + n[2] * r * 0.8], d, n, s: [0.0068, r * 0.8, 0.0019] }; }
+  const T = [[0.014, 0.024, -0.008], [0.048, 0.046, -0.006], [0.078, 0.053, -0.014], [0.103, 0.055, -0.024]];
+  const thumb = [cap(T[0], T[1], 0.0135, 0.0116), cap(T[1], T[2], 0.0114, 0.0105), cap(T[2], T[3], 0.0105, 0.0093)];
+  const td = [T[3][0] - T[2][0], T[3][1] - T[2][1], T[3][2] - T[2][2]]; const tl = Math.hypot(...td); td.forEach((v, i) => (td[i] = v / tl));
+  const tn = new THREE.Vector3(0, 0.55, 0.83).projectOnPlane(new THREE.Vector3(...td)).normalize().toArray();
+  const tnail = { c: [T[3][0] - td[0] * 0.007 + tn[0] * 0.0082, T[3][1] - td[1] * 0.007 + tn[1] * 0.0082, T[3][2] - td[2] * 0.007 + tn[2] * 0.0082], d: td, n: tn, s: [0.0078, 0.0076, 0.0018] };
+  return { fingers, thumb, T, nails: [...fingers.map((f) => f.nail), tnail] };
+}
+
+function handSDF(pose) {
+  const wrist = cap([-0.134, -0.028, 0], [0.004, 0, 0.001], 0.029, 0.0262); // forearm drops ~12° toward the elbow
+  const knuckles = pose.fingers.map((f) => [f.joints[0][0] - 0.004, f.joints[0][1], f.joints[0][2] + 0.0055, f.r[0] * 0.95]);
+  return (x, y, z) => {
+    // palm: a rounded slab, narrower toward the wrist, its edges curling toward the palm side, plus thenar/hypothenar pads
+    const t = x < 0 ? 0 : x > 0.09 ? 1 : x / 0.09; const sy = 0.86 + 0.14 * t;
+    const qx = Math.abs(x - 0.047) - 0.039, qy = Math.abs(y / sy) - 0.03, qz = Math.abs(z + 2.6 * y * y) - 0.0055;
+    const ox = Math.max(qx, 0), oy = Math.max(qy, 0), oz = Math.max(qz, 0);
+    let palm = Math.sqrt(ox * ox + oy * oy + oz * oz) + Math.min(Math.max(qx, qy, qz), 0) - 0.0112;
+    palm = smin(palm, dEll(x, y, z, [0.03, 0.021, -0.0075], [0.033, 0.021, 0.0155]), 0.01);
+    palm = smin(palm, dEll(x, y, z, [0.036, -0.028, -0.005], [0.037, 0.0135, 0.0125]), 0.008);
+    for (const k of knuckles) palm = smin(palm, Math.hypot(x - k[0], y - k[1], z - k[2]) - k[3], 0.006);
+    // forearm/wrist (oval section, flatter front-to-back)
+    palm = smin(palm, dCap(wrist, x, y * 0.97, z * 1.38) / 1.18, 0.016);
+    // thumb, blended into the thenar pad
+    let th = dCap(pose.thumb[0], x, y, z); th = smin(th, dCap(pose.thumb[1], x, y, z), 0.004); th = smin(th, dCap(pose.thumb[2], x, y, z), 0.003);
+    let d = smin(palm, th, 0.011);
+    // fingers: each blended into the palm, never into one another (pressed fingers keep their crease)
+    for (const f of pose.fingers) { let fd = dCap(f.segs[0], x, y, z); fd = smin(fd, dCap(f.segs[1], x, y, z), 0.0035); fd = smin(fd, dCap(f.segs[2], x, y, z), 0.003); d = Math.min(d, smin(palm, fd, 0.009)); }
+    return d;
+  };
+}
+
+/** Polygonise an SDF over a cube (centre c, half-size h) at resolution n → indexed-free BufferGeometry in metres. */
+function polygonise(sdf, c, h, n) {
+  const mc = new MarchingCubes(n, new THREE.MeshBasicMaterial(), false, false, 300000); mc.isolation = 0;
+  const f = mc.field, step = (2 * h) / n, B = 4; // coarse pass: skip blocks far from the surface
+  for (let bz = 0; bz < n; bz += B) for (let by = 0; by < n; by += B) for (let bx = 0; bx < n; bx += B) {
+    const cx = c[0] + ((bx + B / 2 - n / 2) / (n / 2)) * h, cy = c[1] + ((by + B / 2 - n / 2) / (n / 2)) * h, cz = c[2] + ((bz + B / 2 - n / 2) / (n / 2)) * h;
+    const dc = sdf(cx, cy, cz); const far = Math.abs(dc) > step * B * 1.0;
+    for (let z = bz; z < Math.min(bz + B, n); z++) for (let y = by; y < Math.min(by + B, n); y++) for (let x = bx; x < Math.min(bx + B, n); x++) {
+      f[x + y * n + z * n * n] = far ? -dc : -sdf(c[0] + ((x - n / 2) / (n / 2)) * h, c[1] + ((y - n / 2) / (n / 2)) * h, c[2] + ((z - n / 2) / (n / 2)) * h);
+    }
+  }
+  mc.update(); const cnt = mc.count; const pos = new Float32Array(cnt * 3), nor = new Float32Array(cnt * 3);
+  for (let i = 0; i < cnt; i++) {
+    pos[i * 3] = c[0] + mc.positionArray[i * 3] * h; pos[i * 3 + 1] = c[1] + mc.positionArray[i * 3 + 1] * h; pos[i * 3 + 2] = c[2] + mc.positionArray[i * 3 + 2] * h;
+    const nx = mc.normalArray[i * 3], ny = mc.normalArray[i * 3 + 1], nz = mc.normalArray[i * 3 + 2], l = Math.hypot(nx, ny, nz) || 1; nor[i * 3] = nx / l; nor[i * 3 + 1] = ny / l; nor[i * 3 + 2] = nz / l;
+  }
+  mc.geometry.dispose(); const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); return g;
+}
+
+let _hand = null;
+/** Right hand in a handshake grip: { skin geometry (uv + flush colour), nails geometry }. */
+function gripHandGeometry(res = 128) {
+  if (_hand) return _hand;
+  const pose = gripPose(); const g = polygonise(handSDF(pose), [0.005, 0.0, -0.02], 0.14, res);
+  const P = g.attributes.position, N = P.count, uv = new Float32Array(N * 2), col = new Float32Array(N * 3);
+  const tips = pose.fingers.map((f) => f.joints[3]).concat([pose.T[3]]), knk = pose.fingers.flatMap((f) => [f.joints[0], f.joints[1], f.joints[2]]);
+  for (let i = 0; i < N; i++) {
+    const x = P.getX(i), y = P.getY(i), z = P.getZ(i); uv[i * 2] = (x + 0.4 * z) / 0.011; uv[i * 2 + 1] = (y + 0.4 * z) / 0.011;
+    let flush = 0; for (const p of tips) flush = Math.max(flush, Math.exp(-((x - p[0]) ** 2 + (y - p[1]) ** 2 + (z - p[2]) ** 2) / 0.00012));
+    for (const p of knk) flush = Math.max(flush, 0.55 * Math.exp(-((x - p[0]) ** 2 + (y - p[1]) ** 2 + (z - p[2]) ** 2) / 0.00008));
+    const pale = clamp((-z - 0.004) / 0.012) * 0.12; // palm side paler
+    col[i * 3] = 1 + pale * 0.6; col[i * 3 + 1] = 1 - flush * 0.16 + pale * 0.7; col[i * 3 + 2] = 1 - flush * 0.18 + pale * 0.75;
+  }
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const nails = pose.nails.map((nl) => { const s = new THREE.SphereGeometry(1, 20, 10); const d = new THREE.Vector3(...nl.d), n = new THREE.Vector3(...nl.n), b = new THREE.Vector3().crossVectors(n, d).normalize(); const m = new THREE.Matrix4().makeBasis(d.multiplyScalar(nl.s[0]), b.multiplyScalar(nl.s[1]), n.multiplyScalar(nl.s[2])).setPosition(...nl.c); s.applyMatrix4(m); return s; });
+  _hand = { skin: g, nails: mergeGeometries(nails) }; return _hand;
+}
+
+/** Skin with a wrapped, reddened terminator (light scattering under the skin) on top of the physical BRDF. */
+function sssSkin(m, k = 1) {
+  const A = 'reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseContribution ) * ( 1.0 - F );';
+  const chunk = THREE.ShaderChunk.lights_physical_pars_fragment;
+  if (chunk.includes(A)) {
+    m.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <lights_physical_pars_fragment>', chunk.replace(A, `${A}
+      { float nl = dot( geometryNormal, directLight.direction ); float w = saturate( ( nl + 0.55 ) / 1.55 ) - saturate( nl );
+        reflectedLight.directDiffuse += ${k.toFixed(2)} * max( w, 0.0 ) * vec3( 1.0, 0.36, 0.2 ) * directLight.color * BRDF_Lambert( material.diffuseContribution ); }`)); };
+    m.customProgramCacheKey = () => `s7-skin-${k}`;
+  }
+  return m;
+}
+
+// ------------------------------------------------------------------------------------------------
 function fireBillboards(scene, pos, w = 1.2) {
   const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, uniforms: { time: { value: 0 } },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
@@ -325,7 +456,10 @@ export async function buildS7(ctx) {
 
   // ---------------------------------------------------------------- 7.1 crystal coupes clink
   const WIN = 2.39; // panorama yaw that puts the photographed window straight behind a camera looking down -z
-  const gs = makeSet(null); const G = gs.scene; lightWith(G, ROOM_M, { k: 1.0, rot: WIN - 0.3, bg: 0.07, blur: 0.5 });
+  const gs = makeSet(null); const G = gs.scene; lightWith(G, ROOM_M, { k: 1.0, rot: WIN - 0.3 });
+  { // behind the toast: the real sunset over the lagoon (the same photograph the lounge windows open onto), thrown out of focus
+    const SEA = await hdri(HDRI.sunsetSea); G.background = SEA.pmrem; G.backgroundBlurriness = CP.blur; G.backgroundIntensity = CP.k; G.backgroundRotation.set(0, CP.rot, 0);
+  }
   const gA = crystalGlass(0.19, { seed: 5 }), gB = crystalGlass(0.19, { seed: 9 }); G.add(gA); G.add(gB);
   for (const gl of [gA, gB]) gl.traverse((o) => { if (o.material?.isMeshPhysicalMaterial && o.material.blending === THREE.AdditiveBlending) envK(o.material, G, 0.42); });
   const bokeh = []; const rb = rng(71); for (let i = 0; i < 12; i++) { const b = glow(rb() < 0.5 ? 0xffb060 : 0xffd9a0, rb.range(0.04, 0.09), rb.range(0.25, 0.7)); const sx = rb.sign(); b.position.set(sx * rb.range(0.35, 1.5), rb.range(-0.1, 0.8), rb.range(-2.8, -1.4)); G.add(b); bokeh.push(b); }
@@ -337,7 +471,7 @@ export async function buildS7(ctx) {
     const lt = t - 62.0; const k = smooth(clamp(lt / 0.55)); const recoil = lt > 0.55 ? Math.exp(-(lt - 0.55) * 6) * Math.sin((lt - 0.55) * 30) * 0.004 : 0;
     gA.position.set(lerp(-0.24, -RIM, k) - recoil, 0, 0); gA.rotation.z = lerp(0.1, -0.12, k); gB.position.set(lerp(0.24, RIM, k) + recoil, 0.004, 0.012); gB.rotation.z = lerp(-0.1, 0.12, k);
     gA.userData.update(t); gB.userData.update(t + 3.7);
-    const c = lt > 0.55 ? Math.exp(-(lt - 0.55) * 7) : 0; glint.position.set(0, 0.19, 0.02); glint.material.color.setRGB(1, 0.95, 0.85).multiplyScalar(c * 2.5); glint.scale.setScalar(0.02 + c * 0.024);
+    const c = lt > 0.55 ? Math.exp(-(lt - 0.55) * 7) : 0; glint.position.set(0, 0.19, 0.02); glint.material.color.setRGB(1, 0.95, 0.85).multiplyScalar(c * 1.6); glint.scale.setScalar(0.004 + c * 0.01);
   });
   shots.push(shot('s7.1', 62.0, 63.0, gs, (lt, u, cam) => { const d = aim(cam, v3(lerp(0.06, 0.02, u), 0.2, 0.42), v3(0, 0.165, 0), { fov: 30, near: 0.01, far: 20 }); return { focus: d, aperture: 10 }; },
     { trans: { type: 'luma', dur: 0.5 }, grade: { exposure: 1.15, bloom: 0.55, streak: 0.3, threshold: 1.2, gain: [1.08, 1.0, 0.88] } }));
@@ -355,10 +489,10 @@ export async function buildS7(ctx) {
   });
   const cardN = drawNormal(1024, 640, (g) => { g.fillStyle = '#fff'; drawEmblem(g, 170, 200, 120, { fill: '#fff', stroke: '#fff' }); g.font = `600 52px ${FONT_SERIF}`; g.fillText('LEGEND PADDOCK CLUB', 330, 190); g.font = `600 110px ${FONT_SERIF}`; g.fillText('Nº 007', 60, 540); }, -3);
   const card = mesh(roundBox(0.0856, 0.054, 0.0012, 0.0006, 2), M.titanium().clone()); card.rotation.x = -Math.PI / 2; C.add(card);
-  const face = mesh(new THREE.PlaneGeometry(0.0846, 0.053), new THREE.MeshPhysicalMaterial({ map: cardTex, normalMap: cardN, metalness: 0.5, roughness: 0.34, clearcoat: 0.15 }), { p: [0, 0, 0.0009] }); card.add(face); envK(face.material, C, 0.6); // face sits just above the body (it was coplanar: z-fighting)
+  const face = mesh(new THREE.PlaneGeometry(0.0846, 0.053), new THREE.MeshPhysicalMaterial({ map: cardTex, normalMap: cardN, metalness: 0.6, roughness: 0.34, anisotropy: CARD.aniso, anisotropyRotation: 0, clearcoat: 0.15 }), { p: [0, 0, 0.0009] }); card.add(face); envK(face.material, C, 0.6); // face sits just above the body (it was coplanar: z-fighting)
   const pen = fountainPen(); pen.position.set(0.05, 0.0068, 0.0); pen.rotation.y = Math.PI / 2 - 0.12; C.add(pen);
   spot(C, { intensity: 0.35, pos: [-0.15, 0.35, -0.25], target: [0, 0, 0], angle: 0.4, penumbra: 1, color: 0xfff0dc });
-  spot(C, { intensity: 1.4, pos: [0.3, 0.5, 0.35], target: [0, 0, 0], angle: 0.4, penumbra: 1, color: 0xffe0b0 });
+  spot(C, { intensity: 1.1, pos: [0.3, 0.5, 0.35], target: [0, 0, 0], angle: 0.4, penumbra: 1, color: 0xffe0b0 });
   const cl = glow(0xffb060, 0.5, 0.9); cl.position.set(-0.6, 0.1, -0.8); C.add(cl);
   cs.onUpdate((t) => { const k = easeOutCubic(clamp((t - 62.9) / 1.0)); card.position.set(lerp(-0.22, 0.0, k), 0.0012, lerp(0.05, 0.0, k)); card.rotation.z = lerp(0.35, 0.08, k); });
   shots.push(shot('s7.2', 63.0, 64.0, cs, (lt, u, cam) => { const d = aim(cam, v3(lerp(0.03, 0.05, u), 0.13, 0.11), v3(lerp(-0.05, 0.0, u), 0.0, 0.0), { fov: 30, near: 0.005, far: 20 }); return { focus: d, aperture: 8 }; },
@@ -372,7 +506,8 @@ export async function buildS7(ctx) {
   // organic wrist: flatter back, radial styloid on the thumb side, extensor tendons toward the hand, low-frequency irregularity
   const gx = (x, m, w) => Math.exp(-((x - m) ** 2) / (w * w)), dir = (c, s, dc, ds, w) => Math.exp(-(1 - (c * dc + s * ds)) / w);
   const wristDeform = (x, c, s, u) => 1 - 0.035 * dir(c, s, 1, 0, 0.12) + 0.05 * gx(x, 0.03, 0.014) * dir(c, s, 0.3, 0.95, 0.08) + clamp((x - 0.025) / 0.06) * 0.018 * Math.pow(Math.max(0, Math.cos((u * TAU - Math.PI) * 6)), 6) * Math.max(0, c) + (fbm2(x * 60, u * 8, 2, 5, 8) - 0.5) * 0.03;
-  rig.add(new THREE.Mesh(sweepX(wristX, RY, RZ, { uvScale: [6, 8], n: 96, deform: wristDeform }), skinMat()));
+  const wskin = sssSkin(skinMat(), 0.7); wskin.color.set(HSKIN); wskin.roughness = 0.58; wskin.sheen = 0.3; wskin.sheenColor.set(0xc89a88); wskin.normalScale.set(0.7, 0.7); wskin.clearcoat = 0.0;
+  rig.add(new THREE.Mesh(sweepX(wristX, RY, RZ, { uvScale: [6, 8], n: 96, deform: wristDeform }), wskin));
   const cuffX = [[-0.17, 1.3, 1.16], [-0.05, 1.28, 1.15], [-0.046, 1.25, 1.13], [-0.0445, 1.15, 1.08], [-0.045, 1.08, 1.04], [-0.055, 1.06, 1.03]];
   rig.add(new THREE.Mesh(sweepX(cuffX, RY, RZ, { uvScale: [1, 1] }), cottonMat()));
   const sleeveX = [[-0.32, 1.72, 1.45], [-0.085, 1.62, 1.38], [-0.079, 1.58, 1.35], [-0.0765, 1.48, 1.3], [-0.078, 1.4, 1.26], [-0.089, 1.38, 1.25]];
@@ -404,31 +539,51 @@ export async function buildS7(ctx) {
   const hsS = makeSet(null); const HS = hsS.scene; lightWith(HS, HALL, { k: 1.25, rot: -2.51, bg: 0.22, blur: 0.3 });
   const doorCar = await conceptCar({ paint: 0x3d0b12, metal: 0.65, rough: 0.32, drop: /^(Interior|Wheel|Engine|Body(Underside|Hood|Rearwindow|Taillight|TurnsignalsRear|Headlights|Windshield)|$)/ }); HS.add(doorCar);
   { const b = new THREE.Box3().setFromObject(doorCar); doorCar.position.set(0.35, -0.98 - b.min.y, -0.55 - 1.0); }
-  const skin = skinMat(); const hL = buildHand({ material: skin, side: 1, cuff: 0xe8e2d8 }), hR = buildHand({ material: skin, side: -1, cuff: 0xe8e2d8 });
-  hL.userData.setCurl([0.8, 0.85, 0.9, 0.95], 1.15); hR.userData.setCurl([0.8, 0.85, 0.9, 0.95], 1.15); HS.add(hL); HS.add(hR);
-  const cot = cottonMat();
-  for (const [h, s] of [[hL, 1], [hR, -1]]) {
-    h.traverse((o) => { if (o.isMesh && o.material !== skin && o.material.type === 'MeshStandardMaterial') o.material = skin; });
-    h.add(mesh(new THREE.CylinderGeometry(0.041, 0.043, 0.075, 40), cot, { p: [0, -0.115, 0], s: [1.2, 1, 0.85] }));
-    h.add(mesh(new THREE.CylinderGeometry(0.052, 0.056, 0.32, 40), woolMat(s > 0 ? 0x14161c : 0x221d1a), { p: [0, -0.3, 0], s: [1.15, 1, 0.9] }));
-    const cf = cufflink(0.0068); cf.position.set(0, -0.115, 0.038); h.add(cf);
-  }
-  const hw = luxuryWatch(); hw.position.set(0, -0.072, -0.03); hw.rotation.x = -Math.PI / 2; hw.scale.setScalar(0.95); hL.add(hw);
-  envK(skin, HS, 0.12); envK(cot, HS, 0.25);
-  spot(HS, { intensity: 0.14, pos: [0.4, 0.7, 0.8], target: [0, 0, 0], angle: 0.4, penumbra: 1, color: 0xffe0b0 }); spot(HS, { intensity: 3.6, pos: [-0.35, 0.5, -0.4], target: [0, 0, 0], angle: 0.4, penumbra: 1, color: 0xffb060 }); spot(HS, { intensity: 2.2, pos: [0.45, 0.4, -0.35], target: [0, 0, 0], angle: 0.4, penumbra: 1, color: 0xffd2a0 });
+  // two right hands sculpted as one continuous skin each, clasped palm to palm (A from the left shows the back of its hand, B's
+  // fingers wrap over it), in shirt cuffs and suit sleeves; A wears the gold watch of the previous shot
+  const hg = gripHandGeometry(HAND_RES);
+  const hskin = sssSkin(skinMat(), 0.7); hskin.vertexColors = true; hskin.color.set(HSKIN); hskin.normalScale.set(0.5, 0.5); hskin.roughness = 0.52; hskin.sheen = 0.35; hskin.sheenColor.set(0xc89a88);
+  const nailM = new THREE.MeshPhysicalMaterial({ color: 0xc49c8e, roughness: 0.32, metalness: 0, clearcoat: 0.5, clearcoatRoughness: 0.18 });
+  const cot = cottonMat(); cot.color.set(0xd6d0c6);
+  const FA = Math.atan2(0.028, 0.134); // forearm drop
+  const arm = (suit, withWatch) => {
+    const g = new THREE.Group(); g.add(new THREE.Mesh(hg.skin, hskin)); g.add(new THREE.Mesh(hg.nails, nailM));
+    const fore = new THREE.Group(); fore.rotation.z = FA; g.add(fore);
+    const c0 = withWatch ? 0.064 : 0.046; const cuff = new THREE.Mesh(sweepX([[-0.22, 1, 1], [-c0, 1, 1], [-c0 + 0.0055, 0.985, 0.985], [-c0 + 0.0085, 0.94, 0.94], [-c0 + 0.0075, 0.88, 0.88], [-c0 + 0.004, 0.85, 0.85]], 0.0345, 0.0282, { uvScale: [1, 1] }), cot); cuff.material.side = THREE.DoubleSide; fore.add(cuff);
+    const s0 = c0 + 0.062; const slv = new THREE.Mesh(sweepX([[-0.5, 1.06, 1.06], [-s0, 1, 1], [-s0 + 0.0075, 0.985, 0.985], [-s0 + 0.011, 0.94, 0.94], [-s0 + 0.009, 0.9, 0.9], [-s0 + 0.002, 0.88, 0.88]], 0.05, 0.046, { uvScale: [1, 1] }), woolMat(suit)); slv.material.side = THREE.DoubleSide; fore.add(slv);
+    const cf = cufflink(0.0066); cf.position.set(-c0 - 0.026, 0.0245, 0.0205); cf.lookAt(new THREE.Vector3(-c0 - 0.026, 0.0245 + 0.7, 0.0205 + 0.7)); fore.add(cf);
+    if (withWatch) {
+      const w = luxuryWatch(); w.rotation.x = Math.PI / 2; w.position.set(-0.04, -0.001, 0.0246); w.scale.setScalar(0.92); fore.add(w);
+      const band = new THREE.Mesh(sweepX([[-0.0485, 1, 1], [-0.0315, 1, 1]], 0.0298, 0.0218, { n: 64 }), M.leather(0x2c0b0d)); band.material.side = THREE.DoubleSide; fore.add(band);
+    }
+    return g;
+  };
+  const hA = arm(0x14161c, true), hB = arm(0x221d1a, false); HS.add(hA); HS.add(hB);
+  envK(hskin, HS, 0.14); envK(cot, HS, 0.22); envK(nailM, HS, 0.4);
+  spot(HS, { intensity: HKEY, pos: [-0.25, 0.75, 0.7], target: [0, 0, 0], angle: 0.35, penumbra: 1, color: 0xffe0b8 }); spot(HS, { intensity: 3.6, pos: [-0.35, 0.5, -0.4], target: [0, 0, 0], angle: 0.4, penumbra: 1, color: 0xffb060 }); spot(HS, { intensity: 2.2, pos: [0.45, 0.4, -0.35], target: [0, 0, 0], angle: 0.4, penumbra: 1, color: 0xffd2a0 });
   hsS.onUpdate((t) => {
-    const lt = t - 65.0; const k = smooth(clamp(lt / 0.45)); const pump = Math.sin(clamp((lt - 0.45) / 0.5) * Math.PI) * 0.015;
-    hL.position.set(lerp(-0.2, -0.03, k), pump, 0); hL.rotation.set(0, 0, -Math.PI / 2 + 0.15); hR.position.set(lerp(0.2, 0.03, k), pump, -0.02); hR.rotation.set(0, Math.PI, -Math.PI / 2 + 0.15);
+    // the clasp closes under the whip-pan, then one firm pump
+    const lt = t - 65.0; const k = smooth(clamp(lt / 0.38)); const pump = Math.sin(clamp((lt - 0.42) / 0.5) * Math.PI) * 0.012; const sep = (1 - k) * 0.06;
+    const a = HTILT; hA.position.set(-0.06 - sep, pump - 0.005, 0.015); hA.rotation.set(0, 0, a);
+    hB.position.set(-0.06 + 0.12 * Math.cos(a) + sep, pump - 0.005 + 0.12 * Math.sin(a), -0.015); hB.rotation.set(0, Math.PI, -a);
   });
   shots.push(shot('s7.4', 65.0, 66.0, hsS, (lt, u, cam) => { const d = aim(cam, v3(lerp(0.3, 0.2, u), 0.12, 0.75), v3(0, 0.0, -0.1), { fov: 30, near: 0.01, far: 30 }); return { focus: d - 0.08, aperture: 8 }; },
     { trans: { type: 'whip', dur: 0.3, dir: [1, 0] }, grade: { exposure: 1.15, bloom: 0.45, streak: 0.25, threshold: 1.3, gain: [1.06, 1.0, 0.9] } }));
 
   // ---------------------------------------------------------------- 7.5 the members' lounge
   const ls = makeSet(null); const L = ls.scene; lightWith(L, ROOM, { k: 0.5, rot: 0 });
-  const NIGHT = await hdri(HDRI.night); L.background = NIGHT.equirect; L.backgroundIntensity = 0.85; L.backgroundRotation.set(0, 2.2, 0); // real night sky, last amber light on the horizon
+  // beyond the glass: a real photographed waterfront at dusk (Venice, Poly Haven), projected onto the ground so the cars stand
+  // on its stone quay and the lagoon, the far shore and the afterglow sit at their true distance
+  const view = await groundedBackdrop(L, HDRI.sunsetSea, { height: 1.7, radius: 90, intensity: VIEW.k, rotation: VIEW.rot });
+  view.position.x = VIEW.x; view.position.z = VIEW.z; view.renderOrder = -10; L.background = new THREE.Color(0x000000);
+  view.material.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>\n diffuseColor.rgb = min(diffuseColor.rgb, vec3(${VIEW.clamp.toFixed(1)}));`); }; // tame the sun disc (no wild streaks)
+  view.material.customProgramCacheKey = () => 's7-view';
+  { // the low sun itself, streaming in through the glass: warm rims on people and furniture, a glow raking the far brick
+    const a = 0.59 - VIEW.rot; // azimuth of the photographed sun on the projected panorama (it sits at u ≈ 0.594 in the photo)
+    const sl = new THREE.DirectionalLight(0xffb070, VIEW.sun); sl.position.set(VIEW.x + Math.cos(a) * 88, 5.5, VIEW.z + Math.sin(a) * 88); sl.target.position.set(-1, 0.6, -1); L.add(sl); L.add(sl.target); }
   const CX = 0.6, CZ = -1.5, XF = 5.5, RW = 9 + XF, RXC = (XF - 9) / 2; // seating group; room spans x -9..XF, z -5..5
   // floor: real oak planks, stained dark and polished
-  const floorM = await photoMat('wood', { color: 0x5a3626, bump: 0.8, rough: 0.9, clearcoat: 0.45, ccRough: 0.18 });
+  const floorM = await photoMat('wood', { color: 0x5a3626, bump: 0.8, rough: 0.9, clearcoat: 0.45, ccRough: FLOOR_CCR });
   const floor = new THREE.Mesh(tilePlane(RW, 10, 2.2, 1.1), floorM); floor.rotation.x = -Math.PI / 2; floor.position.x = RXC; L.add(floor);
   // walls: real brick above a dark oak wainscot
   const brickM = await photoMat('brick', { color: 0x6a4a42, bump: 1.2, rough: 1 });
@@ -438,8 +593,8 @@ export async function buildS7(ctx) {
     const wn = new THREE.Mesh(tilePlane(w, 1.0, 1.1, 2.2), wainM); wn.position.set(x, 0.5, z); wn.rotation.y = ry; wn.translateZ(0.02); L.add(wn);
     const rail = mesh(new THREE.BoxGeometry(w, 0.06, 0.06), wainM, { p: [x, 1.0, z], r: [0, ry, 0] }); rail.translateZ(0.04); L.add(rail);
   }
-  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(RW, 10), M.matte(0x0d0907, 0.9)); ceil.position.set(RXC, 4.2, 0); ceil.rotation.x = Math.PI / 2; L.add(ceil);
   const beamM = await photoMat('wood', { color: 0x2a1a12, bump: 0.6, rough: 0.8 });
+  const ceil = new THREE.Mesh(tilePlane(RW, 10, 2.4, 1.2), beamM); ceil.position.set(RXC, 4.2, 0); ceil.rotation.x = Math.PI / 2; L.add(ceil); // timber-boarded ceiling
   for (const z of [-3.6, -1.2, 1.2, 3.6]) L.add(mesh(new THREE.BoxGeometry(RW, 0.32, 0.24), beamM, { p: [RXC, 4.04, z] }));
   // giant steel windows (z = +5) onto the lit cars
   const steel = new THREE.MeshStandardMaterial({ color: 0x15110d, metalness: 0.7, roughness: 0.45 });
@@ -448,13 +603,14 @@ export async function buildS7(ctx) {
   for (let x = -7; x <= 5; x += 2) L.add(mesh(new THREE.BoxGeometry(0.04, 1.15, 0.06), steel, { p: [x, 3.6, 5] }));
   L.add(mesh(new THREE.BoxGeometry(RW, 0.35, 0.3), brickM, { p: [RXC, 0.175, 5.05] }));
   const glassW = new THREE.Mesh(new THREE.PlaneGeometry(RW, 3.85), new THREE.MeshPhysicalMaterial({ color: 0x0a0c10, transparent: true, opacity: 0.12, roughness: 0.02, clearcoat: 1, depthWrite: false })); glassW.position.set(RXC, 2.27, 5.02); glassW.rotation.y = Math.PI; L.add(glassW);
-  const terrace = new THREE.Mesh(new THREE.PlaneGeometry(60, 30), new THREE.MeshStandardMaterial({ color: 0x070606, roughness: 0.4, metalness: 0 })); terrace.rotation.x = -Math.PI / 2; terrace.position.set(0, -0.01, 20); L.add(terrace);
   const plinthM = new THREE.MeshStandardMaterial({ color: 0x0d0c0b, roughness: 0.55, metalness: 0 });
+  const shadowM = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, depthWrite: false, alphaMap: drawTexture(256, 128, (g, w, h) => { const r = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2); r.addColorStop(0, '#fff'); r.addColorStop(0.55, '#ccc'); r.addColorStop(1, '#000'); g.save(); g.scale(1, h / w); g.fillStyle = r; g.fillRect(0, 0, w, w); g.restore(); }), opacity: 0.85 });
   const farDrop = /^(Interior|Wheel.*Brake|BodyHoodTopgrill|BodyUnderside)/; const outCars = await Promise.all([conceptCar({ paint: 0x3d0b12, metal: 0.65, rough: 0.3, drop: farDrop }), conceptCar({ paint: 0x6d6f74, metal: 0.85, rough: 0.3, drop: farDrop })]);
   [[2.6, 10.0, Math.PI * 0.86], [8.4, 11.4, Math.PI * 1.1]].forEach(([x, z, ry], i) => {
     const car = outCars[i]; car.rotation.y = ry; car.position.set(x, 0.12, z); L.add(car);
     L.add(mesh(roundBox(5.4, 0.12, 2.7, 0.05), plinthM, { p: [x, 0.06, z], r: [0, ry, 0] }));
     const e = new THREE.Mesh(new THREE.RingGeometry(1, 1.012, 4, 1, Math.PI / 4), M.emissive(0xffcf8a, 3)); e.scale.set(3.8, 1.9, 1); e.rotation.set(-Math.PI / 2, 0, ry); e.position.set(x, 0.125, z); L.add(e);
+    const sh = new THREE.Mesh(new THREE.PlaneGeometry(4.9, 2.25), shadowM); sh.rotation.set(-Math.PI / 2, 0, ry); sh.position.set(x, 0.1215, z); sh.renderOrder = 1; L.add(sh); // contact shadow
   });
   spot(L, { intensity: 320, pos: [5.4, 9, 7.2], target: [5.4, 0.3, 10.8], angle: 0.62, penumbra: 1, color: 0xffe2b8 });
   // fireplace: black marble surround, sooty brick firebox, burning logs; a framed photographic print with its picture light
@@ -471,7 +627,7 @@ export async function buildS7(ctx) {
   const gilt = goldMat(0.32, 0xc89a58);
   L.add(mesh(roundBox(1.85, 1.02, 0.07, 0.03), gilt, { p: [0, 2.55, -4.95] }));
   const printT = (await photo('hdri/spruit_sunrise_4k.hdr.jpg')).clone(); printT.repeat.set(0.33, 0.333); printT.offset.set(0.27, 0.383);
-  const printM = new THREE.MeshStandardMaterial({ map: printT, emissiveMap: printT, emissive: new THREE.Color(0.42, 0.36, 0.28), roughness: 0.55 });
+  const printM = new THREE.MeshStandardMaterial({ map: printT, emissiveMap: printT, emissive: new THREE.Color(0.42, 0.36, 0.28).multiplyScalar(0.2), roughness: 0.55, color: 0x707070 });
   printM.onBeforeCompile = (sh) => { const toned = (v) => `{ float l = dot(${v}, vec3(0.2126, 0.7152, 0.0722)); ${v} = mix(vec3(l) * vec3(1.18, 0.96, 0.7), ${v}, 0.3); }`; sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>\n${toned('diffuseColor.rgb')}`).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${toned('totalEmissiveRadiance')}`); };
   printM.customProgramCacheKey = () => 's7-print';
   L.add(mesh(new THREE.PlaneGeometry(1.62, 0.8), printM, { p: [0, 2.55, -4.91] }));
@@ -482,6 +638,17 @@ export async function buildS7(ctx) {
     L.add(mesh(lathe([[0.06, 0], [0.065, 0.01], [0.02, 0.03], [0.014, 0.16], [0.03, 0.2], [0.025, 0.22], [0.0001, 0.22]], 32), gilt, { p: [x, 1.695, -4.7] }));
     L.add(mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.16, 16), new THREE.MeshStandardMaterial({ color: 0xf0e8d8, roughness: 0.6 }), { p: [x, 1.995, -4.7] }));
     const fl = glow(0xffc070, 0.12, 2.0); fl.position.set(x, 2.1, -4.7); L.add(fl);
+  }
+  // photoreal brushed-brass barn sconces on the brick, each throwing a scallop of light down the wall (grazing light makes the
+  // real brick and mortar read)
+  const sconce0 = cheapGlass(await prop('AnisotropyBarnLamp', { size: 0.36, axis: 'y' }), { opacity: 0.18, color: 0xfff2dc });
+  tintMats(sconce0, /Lamp Metal/, (m) => { m.color.set(0xe0b884); });
+  const scD = sconce0.userData.size.z / 2; sconce0.userData = {}; // (glTF parser refs are not clonable)
+  for (const [x, z, ry] of SCONCES) {
+    const s = sconce0.clone(); s.rotation.y = ry; s.position.set(x, 2.32, z); s.translateZ(scD - 0.2); L.add(s);
+    const o = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), ry);
+    spot(L, { intensity: SC_I, pos: [x + o.x * 0.18, 2.1, z + o.z * 0.18], target: [x - o.x * 0.1, 0.2, z - o.z * 0.1], angle: 0.62, penumbra: 0.75, color: 0xffc68a });
+    const g = glow(0xffc070, 0.32, 1.1); g.position.set(x + o.x * 0.18, 2.08, z + o.z * 0.18); L.add(g);
   }
   const fireMat = fireBillboards(L, [0, 0.12, -4.42], 0.85); const fireL = point(L, { color: 0xff8a3a, intensity: 6, pos: [0, 0.7, -4.0] });
   // rug, coffee table and its still life
@@ -505,9 +672,8 @@ export async function buildS7(ctx) {
   chA.position.set(-1.7, 0, 3.0); chA.rotation.y = Math.PI * 0.75; L.add(chA); chB.position.set(-0.1, 0, 3.55); chB.rotation.y = -Math.PI * 0.62; L.add(chB);
   L.add(mesh(lathe([[0.0001, 0.6], [0.3, 0.6], [0.3, 0.635], [0.0001, 0.635]], 48), tblM)); L.children.at(-1).position.set(-0.9, 0, 3.35);
   L.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.6, 16), goldMat(0.2), { p: [-0.9, 0.3, 3.35] })); L.add(mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.02, 32), goldMat(0.2), { p: [-0.9, 0.01, 3.35] }));
-  L.add(mesh(lathe([[0.0001, 0], [0.07, 0], [0.07, 0.015], [0.012, 0.03], [0.01, 0.34], [0.0001, 0.34]], 32), goldMat(0.2), { p: [-0.72, 0.636, 3.45] }));
-  L.add(mesh(new THREE.CylinderGeometry(0.11, 0.16, 0.2, 32, 1, true), new THREE.MeshStandardMaterial({ color: 0xffe2b8, emissive: 0xffb060, emissiveIntensity: 1.2, roughness: 0.9, side: THREE.DoubleSide }), { p: [-0.72, 1.03, 3.45] }));
-  { const g = glow(0xffc070, 0.6, 1.0); g.position.set(-0.72, 1.0, 3.45); L.add(g); point(L, { color: 0xffb46a, intensity: 2.2, pos: [-0.72, 0.95, 3.45] }); }
+  { const lamp = await prop('StainedGlassLamp', { size: 0.6, axis: 'y' }); lamp.position.set(-0.74, 0.636, 3.47); lamp.rotation.y = 0.8; L.add(lamp);
+    const g = glow(0xffc070, 0.5, 1.0); g.position.set(-0.74, 1.05, 3.47); L.add(g); point(L, { color: 0xffb46a, intensity: 2.2, pos: [-0.74, 1.0, 3.47] }); }
   for (const [x, y, z] of [[CX - 0.2, 3.05, CZ + 0.3], [CX + 0.9, 3.15, CZ - 0.7], [-0.9, 3.1, 3.2]]) {
     L.add(mesh(new THREE.CylinderGeometry(0.004, 0.004, 4.2 - y, 6), M.blackSatin(), { p: [x, (4.2 + y) / 2, z] }));
     L.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.05, 16), goldMat(0.2), { p: [x, y + 0.13, z] }));
@@ -515,6 +681,7 @@ export async function buildS7(ctx) {
     const g = glow(0xffc985, 0.45, 1.0); g.position.set(x, y, z); L.add(g);
   }
   const winCoupe = crystalGlass(0.16, { bubbles: 10, seed: 41 }); winCoupe.position.set(-0.98, 0.636, 3.3); L.add(winCoupe); coupes.push(winCoupe);
+  for (const c of coupes) c.traverse((o) => { if (o.material?.isMeshPhysicalMaterial && o.material.blending === THREE.AdditiveBlending) { o.material = o.material.clone(); o.material.roughness = 0.14; o.material.clearcoat = 0; } }); // no pin-point sun glints at room scale
   // side tables with Tiffany lamps; heritage bellows camera by the hearth
   for (const [dx, dz] of [[1.45, -1.55], [1.95, 1.5]]) {
     const x = CX + dx, z = CZ + dz; L.add(mesh(roundBox(0.5, 0.56, 0.5, 0.015), tblM, { p: [x, 0.28, z] }));
@@ -543,7 +710,7 @@ export async function buildS7(ctx) {
   // members and staff (real cloth, real skin); the barman works behind the counter
   const members = [
     { f: buildFigure({ suit: 0x14151a }), suit: 0x14151a, pose: 'sitCross', pos: [CX + 1.42, 0.06, CZ - 0.42], ry: -Math.PI / 2 - 0.35 },
-    { f: buildFigure({ suit: 0x2a1418, gender: 'f', hair: 0x2b1d14 }), suit: 0x2a1418, pose: 'sit', pos: [CX - 0.2, 0.0, CZ - 1.25], ry: 0.1 },
+    { f: buildFigure({ suit: 0x2a1418, gender: 'f', hair: 0x2b1d14 }), suit: 0x2a1418, pose: 'sit', pos: [CX - 0.25, 0.0, CZ - 1.36], ry: 0.1 },
     { f: buildFigure({ suit: 0x0b0b0c, shirt: 0xe8e2d8 }), suit: 0x0b0b0c, pose: 'holdGlass', pos: [1.5, 0, 3.75], ry: -2.4 },
     { f: buildFigure({ suit: 0x1c1d22 }), suit: 0x1c1d22, pose: 'gesture', pos: [2.3, 0, 3.25], ry: 2.2 },
     { f: buildFigure({ suit: 0x0b0b0c, shirt: 0xe8e2d8 }), suit: 0x0b0b0c, pose: 'holdGlass', pos: [XF - 0.75, 0, -1.0], ry: -Math.PI / 2 },
@@ -552,12 +719,9 @@ export async function buildS7(ctx) {
   // light: fire, lamps, a warm key over the group, the window-side cars; reflections from the room itself
   spot(L, { intensity: 70, pos: [CX - 0.5, 4.0, CZ + 1.5], target: [CX, 0.5, CZ], angle: 0.7, penumbra: 1, color: 0xffd9a8 });
   spot(L, { intensity: 60, pos: [-4, 3.8, -1], target: [0, 0.8, -3.5], angle: 0.8, penumbra: 1, color: 0xffc98a });
-  const ld = dust(L, { count: 250, box: [0, 2, 0, 12, 4, 9], size: 0.6, intensity: 0.3, res: ctx.res, seed: 73 });
-  ld.pts.visible = false;
-  { const pm = new THREE.PMREMGenerator(R); const probe = pm.fromScene(L, 0.02, 0.05, 60, { size: 256, position: new THREE.Vector3(CX - 1.8, 1.4, CZ + 1.4) }).texture; pm.dispose(); L.environment = probe; L.environmentIntensity = 1.0; L.environmentRotation.set(0, 0, 0); }
-  ld.pts.visible = true;
-  ls.onUpdate((t) => { fireMat.uniforms.time.value = t; fireL.intensity = 4.2 + noise1(t * 6) * 1.2 + noise1(t * 13) * 0.6; ld.set(t); members[3].f.userData.J['sh1'].rotation.x = -0.9 + Math.sin(t * 1.4) * 0.15; for (const c of coupes) c.userData.update(t); });
+  { const pm = new THREE.PMREMGenerator(R); const probe = pm.fromScene(L, 0.02, 0.05, 200, { size: 256, position: new THREE.Vector3(CX - 1.8, 1.4, CZ + 1.4) }).texture; pm.dispose(); L.environment = probe; L.environmentIntensity = 1.0; L.environmentRotation.set(0, 0, 0); }
+  ls.onUpdate((t) => { fireMat.uniforms.time.value = t; fireL.intensity = 4.2 + noise1(t * 6) * 1.2 + noise1(t * 13) * 0.6; members[3].f.userData.J['sh1'].rotation.x = -0.9 + Math.sin(t * 1.4) * 0.15; for (const c of coupes) c.userData.update(t); });
   shots.push(shot('s7.5', 66.0, 72.0, ls, keyCam([v3(-8.4, 1.75, -1.8), v3(-7.2, 1.6, -0.6), v3(-6.0, 1.5, 0.2)], [v3(1.5, 1.0, 1.2), v3(2.0, 1.0, 2.0), v3(2.0, 0.9, 2.6)], { fov: 50, aperture: 1.5, ease: (x) => easeInOutCubic(x) }),
-    { trans: { type: 'dissolve', dur: 0.5 }, grade: { exposure: 1.25, bloom: 0.55, streak: 0.28, threshold: 1.2, gain: [1.08, 1.0, 0.88], lift: [0.004, 0.002, 0.0] } }));
+    { trans: { type: 'dissolve', dur: 0.5 }, grade: { exposure: 1.25, bloom: 0.55, streak: 0.16, threshold: 1.2, gain: [1.08, 1.0, 0.88], lift: [0.004, 0.002, 0.0] } }));
   return { shots };
 }
