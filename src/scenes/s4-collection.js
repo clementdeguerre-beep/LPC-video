@@ -9,7 +9,7 @@ import { buildCar, reflectionOf, contactShadow, emblemMaterial } from '../models
 import { buildGauge } from '../models/props.js';
 import { mesh, patch, lathe } from '../models/geo.js';
 import { easeOutCubic, easeInCubic, TAU } from '../engine/util.js';
-import { useHdri, HDRI, model, hide, selectVariant, photo } from '../engine/assets.js';
+import { useHdri, hdri, HDRI, model, hide, selectVariant, photo } from '../engine/assets.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const W_ROT = 0.6, CAP_ROT = -1.6; // 4.3 studio yaw (paint, chrome) and the emblem cap's own yaw
@@ -18,7 +18,7 @@ export const COLLECTION = [
   ['supercar', 0x0b0b0c], ['gt', 0xb8b9bc], ['classic', 0xcdb48a], ['prototype', 0x0c0c0d], ['roadster', 0x3d0b12], ['gt', 0x050505],
 ];
 /** Ring slots taken by the photoreal concept car (paint in the film palette: titanium, champagne gold, gloss black). */
-const CONCEPT_SLOTS = { 1: { paint: 0x6d6f74, metal: 0.85, rough: 0.37 }, 3: { paint: 0xcdb48a, metal: 1, rough: 0.35 }, 6: { paint: 0x060607, metal: 0.05, rough: 0.14 } };
+const CONCEPT_SLOTS = { 1: { paint: 0x6d6f74, metal: 0.85, rough: 0.42 }, 3: { paint: 0xcdb48a, metal: 1, rough: 0.35 }, 6: { paint: 0x060607, metal: 0.05, rough: 0.14 } };
 
 /** Photoreal concept car (Khronos CarConcept), cleaned for the brief: no logos/plates, no dashboard display, palette paint, cheap dark glass. */
 async function conceptCar({ paint = 0x6d6f74, metal = 0.85, rough = 0.3, trim = 0x3d0b12, length = 4.45, env = null, envI = 1, envRot = 0 } = {}) {
@@ -166,11 +166,15 @@ export async function buildS4(ctx) {
   }, { trans: { type: 'luma', dur: 0.6 }, grade: { exposure: 1.15, bloom: 0.4, streak: 0.2, threshold: 1.4, gain: [1.04, 1.0, 0.94] } }));
 
   // ---------------------------------------------------------------- 4.2 vintage speedometer sweep
-  const ss = makeSet(null, { envIntensity: 1 }); await useHdri(ss.scene, HDRI.studio, { env: 0.85, rotation: -0.41 }); // softbox placed just off the glass so it glints across one side of the dial
+  const ss = makeSet(null, { envIntensity: 1 }); await useHdri(ss.scene, HDRI.studio, { env: 0.45, rotation: -0.41 }); // real studio panorama: dim fill on the veneer, glints on the glass and bezel
   const speedo = buildGauge({ min: 0, max: 300, major: 20, minor: 10, label: 'km/h', sub: 'Legend Paddock Club', radius: 0.07, arc: [-2.5, 2.5], face: '#08080a', redFrom: 260 });
   speedo.traverse((o) => { if (o.isMesh && o.material === M.crystal()) o.visible = false; }); // small centre dome → full flat cover glass below
-  // the printed dial face keeps deep blacks: almost no studio fill (its rough sheen washed the dial grey and showed the round lamp as an orb above the hub)
-  speedo.traverse((o) => { if (o.isMesh && o.material.map && o.material.isMeshStandardMaterial) { o.material.roughness = 0.55; envOn(o.material, ss.scene, 0.12); o.material.envMapRotation.set(0, -0.41, 0); } });
+  // chrome case + gold bezel: private copies whose softbox lands as one thin glint on the upper-left rim (with the shared studio
+  // reflection the case bloomed into a warm veil over 20-80 and a grey glare at the top-right); the gold pivot stays a dark gold disc
+  const caseMats = new Map(); speedo.traverse((o) => { if (o.isMesh && (o.material === M.chrome() || o.material === M.goldPolished())) { const pivot = o.parent !== speedo; const key = pivot ? 'pivot' : o.material;
+    if (!caseMats.has(key)) { const c = o.material.clone(); envOn(c, ss.scene, pivot ? 0.6 : 0.35); if (pivot) c.roughness = 0.3; c.envMapRotation.set(0, 1.2, 0); caseMats.set(key, c); } o.material = caseMats.get(key); } });
+  // the printed dial face keeps deep blacks: almost no studio fill (its rough sheen washed the dial grey)
+  speedo.traverse((o) => { if (o.isMesh && o.material.map && o.material.isMeshStandardMaterial) { o.material.roughness = 0.55; envOn(o.material, ss.scene, 0.12); o.material.envMapRotation.set(0, 1.2, 0); } });
   // cover glass: black base + additive blending = pure Fresnel reflection of the real studio. A radial alpha falloff keeps the
   // reflection to a thin crescent along the bezel (it never crosses the needle's path), and the softbox is turned to the upper-left
   // rim, away from the 220-300 payoff and the red zone.
@@ -188,7 +192,7 @@ export async function buildS4(ctx) {
   point(ss.scene, { intensity: 0.004, pos: [0, 0, 0.02], color: 0xffc070 });
   ss.onUpdate((t) => { const lt = t - 30.9; speedo.userData.setValue(easeOutCubic(clamp(lt / 1.1)) * 248 + Math.sin(lt * 30) * 1.2 * clamp(lt)); });
   shots.push(shot('s4.2', 31.0, 31.9, ss, (lt, u, cam) => {
-    const d = aim(cam, v3(lerp(0.09, 0.06, u), lerp(-0.02, 0.0, u), 0.11), v3(0.0, lerp(0.01, 0.0, smooth(clamp((u - 0.4) / 0.6))), 0), { fov: lerp(32, 29, smooth(clamp((u - 0.4) / 0.6))), near: 0.003, far: 20, roll: -0.2 }); return { focus: d, aperture: 10 }; // settles and pushes in on the gold pivot: the iris opens out of it
+    const d = aim(cam, v3(lerp(0.09, 0.06, u), lerp(-0.02, 0.0, u), lerp(0.11, 0.134, u)), v3(0.0, lerp(0.01, 0.0, smooth(clamp((u - 0.4) / 0.6))), 0), { fov: lerp(32, 30, smooth(clamp((u - 0.4) / 0.6))), near: 0.003, far: 20, roll: -0.2 }); return { focus: d, aperture: 10 }; // settles on the gold pivot (lens narrows while it eases back, so the needle tip and the red zone stay in frame): the iris opens out of it
   }, { trans: { type: 'whip', dur: 0.32, dir: [1, -0.2] }, grade: { exposure: 1.15, bloom: 0.45, streak: 0.2, threshold: 1.3 } }));
 
   // ---------------------------------------------------------------- 4.3 the emblem on a wheel cap
@@ -197,14 +201,25 @@ export async function buildS4(ctx) {
   const wheelCar = buildCar('classic', { lite: false, fasteners: false, engine: false, interior: false, seed: 44 }); wsN.scene.add(wheelCar.group);
   const capW = wheelCar.wheels.find((w) => w.front && w.side > 0); const capWorld = new THREE.Vector3();
   { // shot-local chrome: a touch of polish haze so the thin spokes read as continuous soft highlights, not dashed light rows
-    const soft = M.chrome().clone(); soft.roughness = 0.24; soft.color.set(0xa9a59d); envOn(soft, wsN.scene, 0.3); soft.envMapRotation.set(0, W_ROT, 0); // dim studio → the key light draws one thin line per spoke
+    const soft = M.chrome().clone(); soft.roughness = 0.34; soft.color.set(0x9c978e); envOn(soft, wsN.scene, 0.2); soft.envMapRotation.set(0, W_ROT, 0); // dim studio → the key light draws one thin line per spoke
     wheelCar.group.traverse((o) => { if (o.isMesh && o.material === M.chrome()) o.material = soft; });
+    // the hero wheel's spokes re-laced as a real three-row wire wheel (Rudge / Borrani style): 20 spokes per row, each pair crossing
+    // at the same angle, the rows stepped evenly round the hub, so the macro shows an ordered lattice instead of scattered sticks
+    const old = capW.group.userData.spin?.children[2];
+    if (old?.isMesh && old.material === soft && old.geometry.attributes.position.count === 1800) { // 60 spokes x 30 vertices: the wire-wheel spoke mesh
+      const r0 = 0.0495, r1 = 0.2118, geos = [], up = new THREE.Vector3(0, 0, 1), m4 = new THREE.Matrix4(), rx = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+      for (const [zh, zr, off] of [[0.056, 0.007, 0], [0.018, 0, 1 / 3], [-0.046, -0.007, 2 / 3]]) for (let i = 0; i < 20; i++) {
+        const a = ((i + off) / 20) * TAU, lace = (i % 2 ? 1 : -1) * 0.42; const p0 = v3(Math.cos(a) * r0, Math.sin(a) * r0, zh), p1 = v3(Math.cos(a + lace) * r1, Math.sin(a + lace) * r1, zr);
+        const cg = new THREE.CylinderGeometry(0.002, 0.002, p0.distanceTo(p1), 6, 1, true); cg.applyMatrix4(m4.lookAt(p0, p1, up).multiply(rx)); cg.translate((p0.x + p1.x) / 2, (p0.y + p1.y) / 2, (p0.z + p1.z) / 2); geos.push(cg);
+      }
+      old.geometry.dispose(); old.geometry = mergeGeometries(geos, false);
+    }
     envOn(wheelCar.paint, wsN.scene, 0.3); wheelCar.paint.envMapRotation.set(0, W_ROT, 0);
-    const capMat = capW.group.userData.cap.material; envOn(capMat, wsN.scene, 0.85); capMat.envMapRotation.set(0, CAP_ROT, 0); // the softbox rakes the cap at a grazing angle: dark mirror field, the gold relief edges glow
+    const capMat = capW.group.userData.cap.material; capMat.envMap = (await hdri(HDRI.warehouse)).pmrem; capMat.envMapIntensity = 0.7; capMat.envMapRotation.set(0, CAP_ROT, 0); capMat.needsUpdate = true; // the cap alone sees the broad, even hall light: crisp gold relief over the black enamel (its own private material)
   }
   spot(wsN.scene, { intensity: 12, pos: [2.6, 1.6, 2.4], target: [1.3, 0.33, 0.8], angle: 0.25, penumbra: 1, color: 0xfff0dc });
   const sweep = spot(wsN.scene, { intensity: 0, pos: [1.0, 0.8, 1.6], target: [1.3, 0.33, 0.8], angle: 0.12, penumbra: 0.6, color: 0xffd9a0 });
-  wsN.onUpdate((t) => { wheelCar.spin((t - 31.9) * 0.7); const k = clamp((t - 32.0) / 0.8); sweep.position.set(lerp(0.6, 2.2, k), 0.9, 1.6); sweep.intensity = Math.sin(k * Math.PI) * 6; });
+  wsN.onUpdate((t) => { wheelCar.spin((t - 31.9) * 0.7); const k = clamp((t - 32.0) / 0.8); sweep.position.set(lerp(0.6, 2.2, k), 0.9, 1.6); sweep.intensity = Math.sin(k * Math.PI) * 4; });
   shots.push(shot('s4.3', 31.9, 32.8, wsN, (lt, u, cam) => {
     capW.group.userData.cap.getWorldPosition(capWorld); const d = aim(cam, capWorld.clone().add(v3(lerp(0.07, 0.04, u), lerp(0.03, 0.015, u), 0.16)), capWorld, { fov: 30, near: 0.005, far: 40 }); return { focus: d, aperture: 12 };
   }, { trans: { type: 'iris', dur: 0.4, center: [0.5, 0.5] }, grade: { exposure: 1.2, bloom: 0.45, streak: 0.22, threshold: 1.3, gain: [1.05, 1.0, 0.9] } }));
@@ -280,6 +295,6 @@ export async function buildS4(ctx) {
     tgt.lerp(v3(0, 0, 0), smooth(clamp(upK * 1.4)));
     const d = aim(cam, pos, tgt, { fov: lerp(52, 37, upK), near: 0.05, far: 200, roll: bank * (1 - upK) }); reflLOD(cam);
     return { focus: d, aperture: lerp(3, 0.5, upK) };
-  }, { trans: { type: 'zoom', dur: 0.5, center: [0.5, 0.5] }, grade: { exposure: 1.25, bloom: 0.5, streak: 0.25, threshold: 1.2 } }));
+  }, { trans: { type: 'zoom', dur: 0.5, center: [0.5, 0.5] }, grade: { exposure: 1.25, bloom: 0.5, streak: 0.25, threshold: 1.2, gain: [1.04, 1.0, 0.92] } })); // warm grade: the hall's daylight windows read neutral-warm, not blue
   return { shots, cars };
 }
