@@ -266,6 +266,32 @@ Generate shot by shot at 24 fps, 16:9, ≥ 1080p. Upscale to 4K. Conform in the 
 
 ---
 
+## 6b. Realism pass: real photographic material in every scene
+
+The CGI cut is lit and dressed with real photographic material (`src/engine/assets.js`; licences in `assets/LICENSES.md`). Rules applied throughout:
+
+* **Light from photographs.** Every set takes its image-based lighting and reflections from a real HDR panorama: studios, a warehouse, a sunlit room, golden-hour fields, a sunset over the lagoon. Where a panorama's light sources are too hot for macro work, scenes build a "black-flagged" or clamped copy of it (walls darkened, hottest lamps capped). That keeps the reflections photographic without neon highlights.
+* **Backdrops from photographs.** Exteriors use the panorama itself as the defocused background, so the sky and horizon are real. The CGI ground is matched to that horizon.
+* **Photo surfaces.** Brick, hardwood, carbon weave, grass (projected from three sides on slopes), water normals and real lens-flare sprites are used on the large surfaces.
+* **Photoreal hero props.** A concept supercar, a leather sofa and a velvet sofa, a silk pouf, a Tiffany lamp, barn lamps, glass vases, aviator sunglasses and traffic cones are used where they serve the story.
+* **No third-party marks.** Licence plates, emblems, tyre sidewall lettering and logo plates on the sample assets are removed or hidden. Every badge on screen is the LPC emblem.
+
+| Scene | Photographic material |
+|---|---|
+| 1 The Spark | Studio panorama on the spark plug, bore and runner (clamped); warehouse panorama on the classic car; brick barrel vault; photographed concrete in the key-light pool; brass pendants with real flares |
+| 2 The Anatomy | Real strip softboxes from a white-cyclorama studio, with the walls flagged black; carbon weave on the floor pans and harness sleeve; one overhead strip on the top-down |
+| 3 The Atelier | Studio softboxes on the macros (panel gap, polisher swirls, gauge, pinstripe); brick walls and hardwood floor; barn lamps |
+| 4 The Collection | Dark-studio macros; the concept car in the twelve-car ring (gold, titanium and burgundy, no marks) |
+| 5 The Paddock | Brick hall with concept cars on the platforms; the exterior sits under the real sunset over the lagoon, which the pool reflects |
+| 6 The Road | Sunset-sea asphalt macro; gold visor reflecting the coast; photo grass and limestone hillside; sea shaded by depth; concept car on the circuit before the sunrise-field photograph, with sparks |
+| 7 The Club | Warm-room panorama on crystal, titanium and gold; photoreal sofas, pouf, Tiffany lamp and vases; hardwood floor; the sunset lagoon outside the windows |
+| 8 The Service | Concierge desk with sunglasses, vases and bell; carrier at dusk; track day with real cones before the sunrise field; gold concept car on the platform |
+| 9 The Legacy | Black-flagged studio on the black car; a narrow champagne softbox sweep across the gold-and-enamel emblem |
+
+Known limits of the CGI cut, to address in a studio pass: the craftsmen and members are stylised mannequins (staged as silhouettes in the lounge), the handshake hands are sculpted rather than scanned, and the coast road is a gentle S-curve rather than true switchbacks.
+
+---
+
 ## 7. CGI studio notes (photoreal pipeline)
 
 * **Assets to build:**
