@@ -135,11 +135,14 @@ function dimEnv(root, scene, k) { const done = new Map(); root.traverse((o) => {
 /** An explicit material.envMap ignores scene.environmentRotation (three uses material.envMapRotation): keep the panorama's yaw. */
 function envRot(mat, scene) { if (scene.environmentRotation) mat.envMapRotation.copy(scene.environmentRotation); return mat; }
 
-/** PMREM of the panorama with everything below the sea horizon (the photographer's sunlit stone quay) darkened to `k`: the island's
- *  paving and drive are dark at dusk, so lower body panels must not mirror a bright ground that is not there. */
-function darkGroundEnv(renderer, src, k = 0.15) {
+/** PMREM of the panorama with everything below the sea horizon (the photographer's sunlit stone quay and its white kerb) replaced
+ *  by a uniform dark ground of `k` × the horizon sky's mean colour. Around the car the ground really is the island's dark dusk paving,
+ *  so glossy sills and lower panels must mirror a plain dark ground, not a scaled copy of a bright photographed pavement (which read
+ *  as a see-through underbody and a light plate under the sills). */
+function darkGroundEnv(renderer, src, k = 0.04) {
   const d = src.image.data, W = src.image.width, H = src.image.height; const out = new Uint16Array(d); const F = THREE.DataUtils;
-  for (let y = 0; y < H; y++) { const el = (0.5 - (y + 0.5) / H) * Math.PI; if (el > 0) continue; const f = lerp(1, k, smooth(-el / 0.06)); for (let x = 0; x < W; x++) { const i = (y * W + x) * 4; for (let c = 0; c < 3; c++) out[i + c] = F.toHalfFloat(Math.min(F.fromHalfFloat(out[i + c]), 6e4) * f); } }
+  const ground = horizonColour(src, 0, 0.999, { el0: 0.005, el1: 0.12, k }).toArray();
+  for (let y = 0; y < H; y++) { const el = (0.5 - (y + 0.5) / H) * Math.PI; if (el > 0) continue; const f = smooth(-el / 0.04); for (let x = 0; x < W; x++) { const i = (y * W + x) * 4; for (let c = 0; c < 3; c++) out[i + c] = F.toHalfFloat(lerp(Math.min(F.fromHalfFloat(out[i + c]), 6e4), ground[c], f)); } }
   const t = new THREE.DataTexture(out, W, H, THREE.RGBAFormat, THREE.HalfFloatType); t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = src.colorSpace; t.flipY = src.flipY; t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false; t.needsUpdate = true;
   const gen = new THREE.PMREMGenerator(renderer); const pm = gen.fromEquirectangular(t).texture; gen.dispose(); t.dispose(); return pm;
 }
@@ -161,8 +164,8 @@ function scallopMap(xs, { w = 1024, h = 128, base = 'rgb(16,13,10)', color = [25
 }
 
 /** Dust motes that live only inside the lit spot cones (never in the dark, never up at the ceiling) and fade out within
- *  `near` metres of the lens, so no mote becomes a defocused disc or a "star". cones: [{ apex, target, angle, n }]. */
-function coneDust(scene, cones, { size = 0.7, intensity = 0.45, res = 1, seed = 51, near = 2.2, yMin = 0.25, yMax = 3.6 } = {}) {
+ *  `near` metres of the lens (no defocused disc) and beyond `far` (no pin-point "stars" against the far wall). cones: [{ apex, target, angle, n }]. */
+function coneDust(scene, cones, { size = 0.7, intensity = 0.45, res = 1, seed = 51, near = 2.2, far = [10, 16], yMin = 0.25, yMax = 3.6 } = {}) {
   const r = rng(seed); const P = [], ph = [], sz = []; const A = new THREE.Vector3(), D = new THREE.Vector3(), U = new THREE.Vector3(), V = new THREE.Vector3(), X = new THREE.Vector3();
   for (const c of cones) {
     A.set(...c.apex); D.set(...c.target).sub(A); const len = D.length(); D.normalize(); U.set(1, 0, 0).cross(D); if (U.lengthSq() < 1e-4) U.set(0, 0, 1).cross(D); U.normalize(); V.crossVectors(D, U);
@@ -175,11 +178,11 @@ function coneDust(scene, cones, { size = 0.7, intensity = 0.45, res = 1, seed = 
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('phase', new THREE.Float32BufferAttribute(ph, 1)); g.setAttribute('sz', new THREE.Float32BufferAttribute(sz, 1));
   const mat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    uniforms: { time: { value: 0 }, size: { value: size }, color: { value: new THREE.Color(0xffe7c2).multiplyScalar(intensity) }, map: { value: dotTexture() }, res: { value: res }, near: { value: near } },
-    vertexShader: `uniform float time, size, res, near; attribute float phase; attribute float sz; varying float vA;
+    uniforms: { time: { value: 0 }, size: { value: size }, color: { value: new THREE.Color(0xffe7c2).multiplyScalar(intensity) }, map: { value: dotTexture() }, res: { value: res }, near: { value: near }, far: { value: new THREE.Vector2(...far) } },
+    vertexShader: `uniform float time, size, res, near; uniform vec2 far; attribute float phase; attribute float sz; varying float vA;
       void main(){ vec3 p = position + vec3(sin(time*0.31 + phase)*0.09, sin(time*0.23 + phase*1.7)*0.07 + time*0.012, cos(time*0.27 + phase*0.6)*0.09);
         vec4 mv = modelViewMatrix*vec4(p,1.); gl_Position = projectionMatrix*mv; float d = -mv.z; gl_PointSize = clamp(size * sz * res * 30. / d, 0., 10.*res);
-        vA = (0.55 + 0.45*sin(time*1.3 + phase*3.)) * smoothstep(near, near + 1.6, d); }`,
+        vA = (0.55 + 0.45*sin(time*1.3 + phase*3.)) * smoothstep(near, near + 1.6, d) * (1. - smoothstep(far.x, far.y, d)); }`,
     fragmentShader: `uniform vec3 color; uniform sampler2D map; varying float vA; void main(){ float a = texture2D(map, gl_PointCoord).r; gl_FragColor = vec4(color * a * vA, 1.); }`,
   });
   const pts = new THREE.Points(g, mat); pts.frustumCulled = false; scene.add(pts);
@@ -378,7 +381,7 @@ export async function buildS5(ctx) {
   spot(P, { intensity: 260, pos: [6.2, 5, 1.5], target: [6.2, 0.6, 4.2], angle: 0.7, penumbra: 1, color: 0xffd9a8 });
   spot(P, { intensity: 170, pos: [14, 4.5, 0], target: [16.6, 0.5, 0], angle: 0.3, penumbra: 0.7, color: 0xffc98a }); // desk front and the floor before it; the concierge stands just outside the pool of light
   const hemi = new THREE.HemisphereLight(0xffe2b8, 0x1a1410, 0.45); P.add(hemi);
-  const pd = coneDust(P, [{ apex: [0.5, 5, -1.2], target: [0, 0.6, -4.2], angle: 0.55, n: 110 }, { apex: [6.2, 5, 1.5], target: [6.2, 0.6, 4.2], angle: 0.7, n: 100 }, { apex: [14, 4.5, 0], target: [17, 1, 0], angle: 0.5, n: 20 }], { size: 0.7, intensity: 0.26, res: ctx.res, seed: 51, yMax: 2.5 });
+  const pd = coneDust(P, [{ apex: [0.5, 5, -1.2], target: [0, 0.6, -4.2], angle: 0.55, n: 110 }, { apex: [6.2, 5, 1.5], target: [6.2, 0.6, 4.2], angle: 0.7, n: 100 }], { size: 0.7, intensity: 0.26, res: ctx.res, seed: 51, yMax: 2.5 });
   ps.onUpdate((t) => { pd.set(t); if (t < 44.3) cover.userData.lift(smooth(clamp((t - 42.2) / 2.6)), t); hero.lights(0, 0); });
   const heroWorld = v3(0, 0.16, -4.2);
   shots.push(shot('s5.3', 42.1, 44.0, ps, (lt, u, cam) => {
@@ -394,7 +397,7 @@ export async function buildS5(ctx) {
   // sky in a rippled Fresnel water surface) thins out into the photographed water long before the horizon, under fog of the horizon's colour.
   const ex = makeSet(null, { bg: null }); const E = ex.scene;
   const sea = await useHdri(E, HDRI.sunsetSea, { env: SUN.env, rotation: SUN.rot }); // real sunset photograph: light + every reflection (1k PMREM)
-  E.environment = darkGroundEnv(ctx.renderer, sea.equirect, 0.12); const envE = (mat, k) => envRot(envOn(mat, E, k), E);
+  E.environment = darkGroundEnv(ctx.renderer, sea.equirect, 0.05); const envE = (mat, k) => envRot(envOn(mat, E, k), E);
   E.add(panoBackdrop(sea.equirect, { rotation: SUN.rot, intensity: SUN.bg }));
   E.fog = new THREE.FogExp2(horizonColour(sea.equirect, 0.5, 0.75, { k: SUN.bg }), 0.0026);
   // island: stone paving to a flush Istrian-stone quay edge, brick quay walls down to the water
@@ -467,10 +470,17 @@ export async function buildS5(ctx) {
     const lampC = new THREE.Box3().setFromObject(findIn(l, /_Lantern/)[0]).getCenter(new THREE.Vector3()); const g = glow(0xffc985, 0.9, 0.45); g.position.copy(lampC); E.add(g);
   }
   // photoreal car parked on the drive facing the pavilion, lamps lit, deep burgundy paint mirroring the sunset (right of the title's band)
-  const exCar = await conceptCar({ paint: 0x3d0b12, metal: 0.6, rough: 0.28, trim: 0x2a1a12, length: 4.45, lights: 1, cabin: false }); exCar.position.set(CAR5[0], 0.012, CAR5[1]); exCar.rotation.y = CAR5[2]; E.add(exCar);
-  exCar.traverse((o) => { if (o.isMesh && /Paint|Rim|Glass/i.test(o.material.name)) envE(o.material, /Paint 1/.test(o.material.name) ? 1.6 : 1.0); });
+  const exCar = await conceptCar({ paint: 0x3e0711, metal: 0.92, rough: 0.3, trim: 0x2a1a12, length: 4.45, lights: 1, cabin: false }); exCar.position.set(CAR5[0], 0.012, CAR5[1]); exCar.rotation.y = CAR5[2]; E.add(exCar);
+  exCar.traverse((o) => {
+    if (!o.isMesh) return; const n = o.material.name;
+    if (/Paint 2/.test(n)) { o.material.roughness = 0.5; o.material.clearcoatRoughness = 0.35; envE(o.material, 0.25); } // satin black sills and diffuser: no sunset "plate" under the doors
+    else if (/Paint|Rim|Glass/i.test(n)) envE(o.material, /Paint 1/.test(n) ? 1.1 : 1.0); // metallic burgundy: the sky reflection itself is tinted deep red
+  });
   { const sh = conceptShadow(); sh.position.set(CAR5[0], 0.016, CAR5[1]); sh.rotation.z = CAR5[2]; E.add(sh); }
-  spot(E, { intensity: 90, pos: [CAR5[0], 6, CAR5[1] + 4.6], target: [CAR5[0], 0.5, CAR5[1] - 0.2], angle: 0.4, penumbra: 1, color: 0xffd9a8 });
+  { const sh = conceptShadow(4.45 * 1.15, 1.95 * 1.6, 0.55); sh.position.set(CAR5[0], 0.015, CAR5[1] - 0.45); sh.rotation.z = CAR5[2]; E.add(sh); } // the key's soft cast shadow, falling just behind the car
+  // near-overhead showroom key: a pool of light on the drive around the car whose cone ends before the pool coping, so the low camera
+  // sees dark ground (not a lit kerb) through the gap under the sills
+  spot(E, { intensity: 120, pos: [CAR5[0], 8, CAR5[1] + 1.2], target: [CAR5[0], 0.4, CAR5[1] + 0.4], angle: 0.28, penumbra: 1, color: 0xffd9a8 });
   const amb = new THREE.HemisphereLight(0x3a4a70, 0x100c08, 0.35); E.add(amb);
   ex.onUpdate((t) => { water.material.uniforms.time.value = t * 0.35; lagN.offset.set(t * 0.004, t * 0.0025); });
   // crane: low on the parked car → up and back over the pavilion; the car leaves the frame to the right before the title resolves

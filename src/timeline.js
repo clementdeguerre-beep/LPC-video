@@ -13,7 +13,7 @@ const SCENES = [
 export const DURATION = 90;
 
 export const TITLES = [
-  { text: 'Where legends park.', start: 46.9, end: 49.9, size: 66, tracking: 0.28, rule: true, y: 0.8 },
+  { text: 'Where legends park.', start: 46.9, end: 49.9, size: 66, tracking: 0.28, rule: true, y: 0.8, fadeIn: 0.6, halo: 0.8 },
   { text: 'Collect. Care. Drive. Belong.', start: 75.9, end: 81.2, size: 60, tracking: 0.24, words: true, wordStep: 0.55, y: 0.84, halo: 0.9 },
   { text: 'Legend Paddock Club', start: 84.7, end: 86.95, size: LOGO.titleSize, tracking: LOGO.tracking, y: LOGO.titleY, weight: 600, noSettle: true, fadeIn: 1.2, fadeOut: 0.5 },
 ];

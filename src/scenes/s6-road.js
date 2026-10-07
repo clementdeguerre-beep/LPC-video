@@ -7,7 +7,7 @@ import { mesh } from '../models/geo.js';
 import { asphalt } from '../engine/textures.js';
 import { TAU, fbm2 } from '../engine/util.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { useHdri, HDRI, model, hide, selectVariant, photo } from '../engine/assets.js';
+import { useHdri, hdri, HDRI, model, hide, selectVariant, photo } from '../engine/assets.js';
 
 function droplets(scene, n, box, seed = 3) {
   const r = rng(seed); const im = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 16, 10), new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0, transparent: true, opacity: 0.35, clearcoat: 1, envMapIntensity: 2.5 }), n);
@@ -43,21 +43,25 @@ function sunSprite(scene, map, dir, { dist = 1500, size = 260, color = 0xffd9a0,
 }
 
 /** Soft contact shadow (AO under the body, darker at the tyres) + a long low-sun shadow trailing away from the sun. Car-local, length along +x. */
-function carShadow(L = 4.45, W = 1.95, { sun = null, long = 0, strength = 0.9 } = {}) {
-  const g = new THREE.Group();
+const carShadowCache = {}; // the AO and long-shadow alpha maps are the same for every car: drawn (and blurred) once
+function carShadowMaps() {
+  if (carShadowCache.ao) return carShadowCache;
   const c = document.createElement('canvas'); c.width = 512; c.height = 256; const x = c.getContext('2d');
   x.fillStyle = '#000'; x.fillRect(0, 0, 512, 256); // alphaMap reads the green channel: white = shadow
   x.filter = 'blur(16px)'; x.fillStyle = 'rgba(255,255,255,0.8)'; x.beginPath(); x.roundRect(56, 52, 400, 152, 64); x.fill();
-  x.filter = 'blur(6px)'; x.fillStyle = 'rgba(255,255,255,0.95)'; for (const px of [118, 390]) for (const py of [66, 190]) { x.beginPath(); x.ellipse(px, py, 44, 18, 0, 0, TAU); x.fill(); }
-  const tex = new THREE.CanvasTexture(c);
-  const ao = new THREE.Mesh(new THREE.PlaneGeometry(L * 1.2, W * 1.35), new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap: tex, transparent: true, opacity: strength, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+  x.filter = 'blur(6px)'; x.fillStyle = 'rgba(255,255,255,0.95)'; x.beginPath(); for (const px of [118, 390]) for (const py of [66, 190]) { x.moveTo(px + 44, py); x.ellipse(px, py, 44, 18, 0, 0, TAU); } x.fill();
+  const c2 = document.createElement('canvas'); c2.width = 512; c2.height = 128; const y = c2.getContext('2d');
+  y.fillStyle = '#000'; y.fillRect(0, 0, 512, 128);
+  const gr = y.createLinearGradient(0, 0, 512, 0); gr.addColorStop(0, 'rgba(255,255,255,0.75)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  y.filter = 'blur(10px)'; y.fillStyle = gr; y.beginPath(); y.roundRect(10, 22, 492, 84, 40); y.fill();
+  carShadowCache.ao = new THREE.CanvasTexture(c); carShadowCache.long = new THREE.CanvasTexture(c2); return carShadowCache;
+}
+function carShadow(L = 4.45, W = 1.95, { sun = null, long = 0, strength = 0.9 } = {}) {
+  const g = new THREE.Group(); const maps = carShadowMaps();
+  const ao = new THREE.Mesh(new THREE.PlaneGeometry(L * 1.2, W * 1.35), new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap: maps.ao, transparent: true, opacity: strength, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   ao.rotation.x = -Math.PI / 2; ao.position.y = 0.006; ao.renderOrder = 2; g.add(ao);
   if (sun && long > 0) {
-    const c2 = document.createElement('canvas'); c2.width = 512; c2.height = 128; const y = c2.getContext('2d');
-    y.fillStyle = '#000'; y.fillRect(0, 0, 512, 128);
-    const gr = y.createLinearGradient(0, 0, 512, 0); gr.addColorStop(0, 'rgba(255,255,255,0.75)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-    y.filter = 'blur(10px)'; y.fillStyle = gr; y.beginPath(); y.roundRect(10, 22, 492, 84, 40); y.fill();
-    const sh = new THREE.Mesh(new THREE.PlaneGeometry(long, W * 1.1), new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap: new THREE.CanvasTexture(c2), transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+    const sh = new THREE.Mesh(new THREE.PlaneGeometry(long, W * 1.1), new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap: maps.long, transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
     sh.geometry.translate(long / 2, 0, 0); sh.geometry.rotateX(-Math.PI / 2); sh.position.y = 0.005; sh.renderOrder = 2;
     const piv = new THREE.Group(); piv.rotation.y = -Math.atan2(-sun.z, -sun.x); piv.add(sh); g.add(piv); g.userData.long = piv; // the strip (+x) turned to point away from the sun
   }
@@ -111,7 +115,7 @@ const VENICE_SUN = [0.5993, 0.4804]; // the sun in venice_sunset (3.5° above th
 /** Inject world-space photo detail + a baked sun-shadow map into a standard material (direct sun only is shadowed).
  *  Triplanar: the photo is projected along x, y and z and blended by pow(|normal|, 4), so it never smears on steep cuts.
  *  rock: ground steeper than ~35° turns to pale limestone (strata and cracks driven by the same photo grain); rockAll: all rock. */
-function photoGround(mat, { grass = null, detail = 0.85, scaleA = 0.09, scaleB = 0.0137, shadow = null, box = [-350, -350, 700, 700], rock = 0, rockAll = false } = {}) {
+function photoGround(mat, { grass = null, detail = 0.85, scaleA = 0.09, scaleB = 0.0137, shadow = null, box = [-350, -350, 700, 700], rock = 0, rockAll = false, contrast = 1 } = {}) {
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.tGrass = { value: grass }; sh.uniforms.tShadow = { value: shadow }; sh.uniforms.sBox = { value: new THREE.Vector4(...box) }; sh.uniforms.detail = { value: detail };
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP; varying vec3 vWN;').replace('#include <project_vertex>', `#include <project_vertex>
@@ -125,8 +129,8 @@ function photoGround(mat, { grass = null, detail = 0.85, scaleA = 0.09, scaleB =
       vec3 triP(float s, float off, float bias, vec3 w) { return texture2D(tGrass, vWP.zy * s + off, bias).rgb * w.x + texture2D(tGrass, vWP.xz * s + off, bias).rgb * w.y + texture2D(tGrass, vWP.xy * s + off, bias).rgb * w.z; }`);
     if (grass) f = f.replace('#include <color_fragment>', `#include <color_fragment>
       { vec3 n = normalize(vWN); vec3 w = pow(abs(n), vec3(4.0)); w /= dot(w, vec3(1.0)); const vec3 LW = vec3(0.2126, 0.7152, 0.0722);
-        vec3 a = triP(${scaleA.toFixed(4)}, 0.0, 0.0, w), b = triP(${scaleB.toFixed(4)}, 0.37, 1.5, w), c = texture2D(tGrass, vWP.xz * 0.0021 + 0.71, 3.0).rgb; // macro layers slightly mip-biased: softer magnified blades
-        float la = dot(a, LW) / 0.15, lb = dot(b, LW) / 0.15, lc = dot(c, LW) / 0.15;
+        vec3 a = triP(${scaleA.toFixed(4)}, 0.0, 0.0, w), b = texture2D(tGrass, vWP.xz * ${scaleB.toFixed(4)} + 0.37, 1.5).rgb, c = texture2D(tGrass, vWP.xz * 0.0021 + 0.71, 3.0).rgb; // fine layer triplanar; the soft macro layers are too large to smear
+        float la = pow(dot(a, LW) / 0.15, ${contrast.toFixed(2)}), lb = dot(b, LW) / 0.15, lc = dot(c, LW) / 0.15; // contrast > 1: leaf clusters and gaps
         vec3 ground = diffuseColor.rgb * mix(1.0, clamp(la * (0.55 + 0.45 * lb) * (0.7 + 0.3 * lc), 0.25, 2.2), detail);
         float steep = ${rockAll ? '1.0' : 'smoothstep(0.84, 0.74, n.y)'} * ${(+rock).toFixed(2)}; // cos 33° → cos 42°
         if (steep > 0.0) { float strata = 0.5 + 0.5 * sin(vWP.y * 2.3 + lb * 1.7 + lc * 2.6); float crack = smoothstep(0.25, 0.85, la);
@@ -137,31 +141,34 @@ function photoGround(mat, { grass = null, detail = 0.85, scaleA = 0.09, scaleB =
       { float sh = texture2D(tShadow, (vWP.xz - sBox.xy) / sBox.zw).r; reflectedLight.directDiffuse *= sh; reflectedLight.directSpecular *= sh; reflectedLight.indirectDiffuse *= mix(0.6, 1.0, sh); }`);
     sh.fragmentShader = f;
   };
-  mat.customProgramCacheKey = () => `pg${!!grass}${!!shadow}${scaleA}${scaleB}${rock}${rockAll}`; mat.needsUpdate = true; return mat;
+  mat.customProgramCacheKey = () => `pg${!!grass}${!!shadow}${scaleA}${scaleB}${rock}${rockAll}${contrast}`; mat.needsUpdate = true; return mat;
 }
 
-/** Smooth lumpy blob: an icosphere welded (smooth normals) and displaced by low-frequency noise; flattened underneath. */
-function lump(r, detail, rad, { top = 1, bottom = 0.7, amp = 0.2 } = {}) {
+/** Smooth lumpy blob: an icosphere welded (smooth normals) and displaced by low-frequency noise; flattened underneath.
+ *  hf adds a high-frequency, leafy bumpiness; the displacement also bakes a cavity AO into the vertex colours. */
+function lump(r, detail, rad, { top = 1, bottom = 0.7, amp = 0.2, hf = 0 } = {}) {
   let g = new THREE.IcosahedronGeometry(1, detail); g.deleteAttribute('normal'); g.deleteAttribute('uv'); g = mergeVertices(g);
-  const p = g.attributes.position; const ph = r() * 20, q = r.range(2.4, 3.4);
+  const p = g.attributes.position; const ph = r() * 20, q = r.range(2.4, 3.4); const col = new Float32Array(p.count * 3);
   for (let k = 0; k < p.count; k++) {
     const x = p.getX(k), y = p.getY(k), z = p.getZ(k);
-    const n = 1 + amp * Math.sin(x * q + ph) * Math.sin(y * 2.7 + ph * 1.3) * Math.sin(z * q + ph * 0.7) + amp * 0.5 * Math.sin(x * 6.3 + z * 5.1 + y * 2 + ph);
-    p.setXYZ(k, x * rad * n, y * rad * n * (y > 0 ? top : bottom), z * rad * n);
+    const lo = amp * Math.sin(x * q + ph) * Math.sin(y * 2.7 + ph * 1.3) * Math.sin(z * q + ph * 0.7) + amp * 0.5 * Math.sin(x * 6.3 + z * 5.1 + y * 2 + ph);
+    const hi = hf * (Math.sin(x * 13.1 + ph * 2) * Math.sin(y * 11.7 - ph) * Math.sin(z * 12.3 + ph * 0.4) + 0.55 * Math.sin(x * 23.0 + y * 19.0 - z * 21.0 + ph * 3));
+    const n = 1 + lo + hi; p.setXYZ(k, x * rad * n, y * rad * n * (y > 0 ? top : bottom), z * rad * n);
+    col[k * 3] = col[k * 3 + 1] = col[k * 3 + 2] = clamp(0.8 + 1.1 * lo + (hf ? 2.2 * hi : 0), 0.3, 1.05);
   }
-  return g;
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3)); return g;
 }
-/** Vertex ambient occlusion by height: undersides and the core of a crown read darker, like real foliage. */
-function heightAO(g, y0, y1, lo = 0.35) { const P = g.attributes.position; const col = new Float32Array(P.count * 3); for (let k = 0; k < P.count; k++) { const v = lerp(lo, 1, smooth((P.getY(k) - y0) / (y1 - y0))); col[k * 3] = col[k * 3 + 1] = col[k * 3 + 2] = v; } g.setAttribute('color', new THREE.BufferAttribute(col, 3)); return g; }
+/** Vertex ambient occlusion by height (multiplied into the cavity AO): undersides and the core of a crown read darker, like real foliage. */
+function heightAO(g, y0, y1, lo = 0.35) { const P = g.attributes.position, C = g.attributes.color; for (let k = 0; k < P.count; k++) { const v = lerp(lo, 1, smooth((P.getY(k) - y0) / (y1 - y0))); C.setXYZ(k, C.getX(k) * v, C.getY(k) * v, C.getZ(k) * v); } return g; }
 
-/** Umbrella-pine canopy: a flat-topped cloud of smooth needle clumps centred like buildCoast's pine top (y ≈ 6.5). */
+/** Umbrella-pine canopy: a flat-topped mass of needle clusters (bumpy, cavity-shaded clumps) centred like buildCoast's pine top (y ≈ 6.5). */
 function pineCrown(seed = 5) {
   const r = rng(seed); const parts = [];
-  for (let i = 0; i < 10; i++) {
-    const a = r() * TAU, d = i === 0 ? 0 : r.range(0.8, 2.5); const g = lump(r, 2, r.range(1.0, 1.55), { top: 0.52, bottom: 0.34, amp: 0.24 });
-    g.translate(Math.cos(a) * d, 6.55 + r.range(-0.2, 0.35) - d * 0.14, Math.sin(a) * d); parts.push(g);
+  for (let i = 0; i < 12; i++) {
+    const a = r() * TAU, d = i === 0 ? 0 : r.range(0.7, 2.6); const g = lump(r, 2, r.range(0.85, 1.3), { top: 0.55, bottom: 0.36, amp: 0.2, hf: 0.07 });
+    g.translate(Math.cos(a) * d, 6.6 + r.range(-0.25, 0.35) - d * 0.13, Math.sin(a) * d); parts.push(g);
   }
-  const m = mergeGeometries(parts, false); m.computeVertexNormals(); return heightAO(m, 5.7, 7.3, 0.3);
+  const m = mergeGeometries(parts, false); m.computeVertexNormals(); return heightAO(m, 5.7, 7.3, 0.35);
 }
 /** Umbrella-pine trunk: tall, slightly leaning, forking into three limbs under the crown. */
 function pineTrunk() {
@@ -182,11 +189,11 @@ function cypressGeo() {
 /** Maquis shrub (lentisk / myrtle): a few welded smooth lumps, flat-bottomed, sitting on y = 0. */
 function shrubGeo(seed) {
   const r = rng(seed); const parts = [];
-  for (let i = 0; i < 3; i++) { const rad = r.range(0.45, 0.8); const g = lump(r, 1, rad, { top: 0.8, bottom: 0.35, amp: 0.2 }); g.translate(r.range(-0.55, 0.55), rad * 0.42, r.range(-0.55, 0.55)); parts.push(g); }
-  const m = mergeGeometries(parts, false); m.computeVertexNormals(); return heightAO(m, 0, 1.0, 0.4);
+  for (let i = 0; i < 4; i++) { const rad = r.range(0.4, 0.72); const g = lump(r, 2, rad, { top: 0.8, bottom: 0.35, amp: 0.18, hf: 0.08 }); g.translate(r.range(-0.6, 0.6), rad * 0.42, r.range(-0.6, 0.6)); parts.push(g); }
+  const m = mergeGeometries(parts, false); m.computeVertexNormals(); return heightAO(m, 0, 1.0, 0.45);
 }
 /** Limestone boulder: a lumpy, flattened, faceted-by-weather stone. */
-function rockGeo(seed) { const r = rng(seed); const g = lump(r, 1, 1, { top: 0.62, bottom: 0.5, amp: 0.3 }); g.computeVertexNormals(); return g; }
+function rockGeo(seed) { const r = rng(seed); const g = lump(r, 1, 1, { top: 0.62, bottom: 0.5, amp: 0.3 }); g.deleteAttribute('color'); g.computeVertexNormals(); return g; }
 
 /** Re-dress buildCoast(): Mediterranean ground colours with triplanar photo detail and limestone cuts, baked long shadows,
  *  photo-normal sea, smooth umbrella pines and cypresses, maquis shrubs and boulders for scale, galvanised Armco. */
@@ -229,20 +236,23 @@ function dressCoast(coast, { scene, sunDir, grass, water, dirt }) {
         const sc = rs.range(sMin, sMax); eu.set(rs.range(-0.08, 0.08), rs() * TAU, rs.range(-0.08, 0.08)); qq.setFromEuler(eu); m4.compose(pp.set(x, y - sink * sc, z), qq, ss.set(sc * rs.range(0.8, 1.3), sc * rs.range(0.75, 1.1), sc * rs.range(0.8, 1.3))); mesh.setMatrixAt(i++, m4); }
     }
     mesh.count = i; mesh.instanceMatrix.needsUpdate = true; return mesh; };
-  const shrubs = scatter(new THREE.InstancedMesh(shrubGeo(5), photoGround(new THREE.MeshStandardMaterial({ color: 0x46512c, vertexColors: true, roughness: 0.9 }), { grass: g1, detail: 0.9, scaleA: 0.8, scaleB: 0.15, shadow: shadowTex }), 900), 900, { dMin: 7, dMax: 85, sMin: 0.8, sMax: 1.9, sink: 0.12, per: 6, spread: 4 });
+  const shrubs = scatter(new THREE.InstancedMesh(shrubGeo(5), photoGround(new THREE.MeshStandardMaterial({ color: 0x5d6a3c, vertexColors: true, roughness: 0.9 }), { grass: g1, detail: 1, scaleA: 0.33, scaleB: 0.085, shadow: shadowTex, contrast: 1.8 }), 900), 900, { dMin: 7, dMax: 85, sMin: 0.8, sMax: 1.9, sink: 0.12, per: 6, spread: 4 });
+  { const rt = rng(77), tints = [0xc4c8a8, 0xa9b383, 0xd6cc98, 0x9aa47c, 0xc9cab6]; const cc = new THREE.Color(); for (let i = 0; i < shrubs.count; i++) shrubs.setColorAt(i, cc.set(tints[Math.floor(rt() * tints.length)]).multiplyScalar(rt.range(0.85, 1.15))); } // lentisk, myrtle, broom, rosemary: grey-greens and olive
   const rocks = scatter(new THREE.InstancedMesh(rockGeo(8), photoGround(new THREE.MeshStandardMaterial({ color: 0xb0a590, roughness: 0.88 }), { grass: g1, scaleA: 0.45, scaleB: 0.12, rock: 1, rockAll: true, shadow: shadowTex }), 260), 260, { dMin: 8, dMax: 80, sMin: 0.35, sMax: 1.3, sink: 0.3, per: 4, spread: 3 });
   coast.add(shrubs, rocks);
-  c2.globalCompositeOperation = 'multiply'; c2.filter = 'blur(3px)'; c2.fillStyle = 'rgb(70,70,70)';
+  // long cast shadows of pines, cypresses, shrubs and boulders: hard ellipses on their own layer ('darken': overlapping shadows
+  // do not compound), then softened by ONE blur and multiplied onto the terrain map (a blur per stamp costs minutes in software GL)
+  const st = document.createElement('canvas'); st.width = st.height = RES; const s2 = st.getContext('2d'); s2.fillStyle = '#fff'; s2.fillRect(0, 0, RES, RES); s2.globalCompositeOperation = 'darken'; s2.fillStyle = 'rgb(70,70,70)';
   const stamp = (mesh, top, rad) => { for (let i = 0; i < mesh.count; i++) { mesh.getMatrixAt(i, m4); m4.decompose(pp, qq, ss); const L = (top * ss.y) / tanE; const cx = pp.x + sd.x * (L * 0.5 + 1), cz = pp.z + sd.z * (L * 0.5 + 1);
-    c2.save(); c2.translate(px(cx), px(cz)); c2.rotate(Math.atan2(sd.z, sd.x)); c2.beginPath(); c2.ellipse(0, 0, (L * 0.5 + rad * ss.x) / SIZE * RES, (rad * ss.x) / SIZE * RES, 0, 0, TAU); c2.fill(); c2.restore(); } };
+    s2.save(); s2.translate(px(cx), px(cz)); s2.rotate(Math.atan2(sd.z, sd.x)); s2.beginPath(); s2.ellipse(0, 0, (L * 0.5 + rad * ss.x) / SIZE * RES, (rad * ss.x) / SIZE * RES, 0, 0, TAU); s2.fill(); s2.restore(); } };
   stamp(tops, 6.2, 2.6); stamp(cyp, 8.0, 1.0); stamp(shrubs, 1.0, 0.9); stamp(rocks, 0.6, 0.9);
-  c2.globalCompositeOperation = 'source-over'; c2.filter = 'none';
+  c2.globalCompositeOperation = 'multiply'; c2.filter = 'blur(3px)'; c2.drawImage(st, 0, 0); c2.globalCompositeOperation = 'source-over'; c2.filter = 'none';
   terrain.material = photoGround(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0 }), { grass: g1, shadow: shadowTex, rock: 1 });
   { const ix = roadMesh.geometry.index.array; for (let i = 0; i < ix.length; i += 3) { const k = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = k; } roadMesh.geometry.computeVertexNormals(); } // the ribbon was wound face-down (culled from above)
   roadMesh.material = photoGround(roadMesh.material.clone(), { shadow: shadowTex }); roadMesh.material.roughness = 0.62;
   // --- pines: smooth clumped umbrella crowns on forked trunks, cypresses on short trunks; photo needle grain (triplanar, per instance)
-  tops.geometry = pineCrown(9); tops.material = photoGround(new THREE.MeshStandardMaterial({ color: 0x55663a, vertexColors: true, roughness: 0.9 }), { grass: g1, detail: 0.95, scaleA: 0.9, scaleB: 0.16 });
-  cyp.geometry = cypressGeo(); cyp.material = photoGround(new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.9 }), { grass: g1, detail: 0.95, scaleA: 0.9, scaleB: 0.16 });
+  tops.geometry = pineCrown(9); tops.material = photoGround(new THREE.MeshStandardMaterial({ color: 0x55663a, vertexColors: true, roughness: 0.9 }), { grass: g1, detail: 1, scaleA: 0.33, scaleB: 0.085, contrast: 1.8 });
+  cyp.geometry = cypressGeo(); cyp.material = photoGround(new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.9 }), { grass: g1, detail: 1, scaleA: 0.33, scaleB: 0.085, contrast: 1.8 });
   trunks.geometry = pineTrunk(); trunks.material = new THREE.MeshStandardMaterial({ color: 0x4a3628, roughness: 0.95 });
   // --- Armco along the sea-side edge (posts kept, galvanised)
   posts.material = galvanised(scene, dirt, { color: 0x55575a, k: 0.4, repeat: [0.2, 0.6] }); posts.scale.y = 1;
@@ -255,6 +265,7 @@ function dressCoast(coast, { scene, sunDir, grass, water, dirt }) {
   // --- sea: two scales of photographed wave normals, drifting; reflects the real sunset sky
   const w1 = water.clone(), w2 = water.clone(); w1.wrapS = w1.wrapT = w2.wrapS = w2.wrapT = THREE.RepeatWrapping; w1.repeat.set(160, 160); w2.repeat.set(700, 700); w1.needsUpdate = w2.needsUpdate = true;
   sea.material = new THREE.MeshPhysicalMaterial({ color: 0x041821, roughness: 0.12, metalness: 0, normalMap: w1, normalScale: new THREE.Vector2(0.55, 0.55), clearcoat: 1, clearcoatRoughness: 0.02, clearcoatNormalMap: w2, clearcoatNormalScale: new THREE.Vector2(0.45, 0.45), specularIntensity: 1 });
+  envK(sea.material, scene, 0.7);
   // --- distance to the shore (chamfer transform of the land mask): turquoise shallows, a sandy wash and a broken surf line, deep navy offshore
   const DR = 256, cellD = SIZE / DR, dist = new Float32Array(DR * DR);
   for (let j = 0; j < DR; j++) for (let i = 0; i < DR; i++) dist[j * DR + i] = H(-half + (i + 0.5) * cellD, -half + (j + 0.5) * cellD) > seaY ? 0 : 1e6;
@@ -270,7 +281,10 @@ function dressCoast(coast, { scene, sunDir, grass, water, dirt }) {
       { vec2 q = (vWP.xz - sBox.xy) / sBox.zw; float d = (q.x < 0. || q.y < 0. || q.x > 1. || q.y > 1.) ? 80. : texture2D(tDepth, q).r * 80.; // metres to the shore
         float wv = texture2D(normalMap, vNormalMapUv * 2.3).g;
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.035, 0.14, 0.135), exp(-d / 22.) * 0.9); diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.33, 0.25), smoothstep(6., 0., d) * 0.55);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8, 0.78, 0.72), smoothstep(7., 1.5, d) * smoothstep(0.45, 0.72, wv) * 0.7); } // broken surf line`);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8, 0.78, 0.72), smoothstep(7., 1.5, d) * smoothstep(0.45, 0.72, wv) * 0.7); } // broken surf line`)
+      // the sun's glitter on the water comes from the panorama (where its sun really is); the key light's mirror glint would be a second,
+      // misplaced sun blooming into a white disc
+      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n reflectedLight.directSpecular = vec3(0.); clearcoatSpecularDirect = vec3(0.);');
   };
   sea.material.customProgramCacheKey = () => 'seaDepth';
   return { shadowTex, H, update(tt) { w1.offset.set(tt * 0.0011, tt * 0.0007); w2.offset.set(-tt * 0.0016, tt * 0.0012); } };
@@ -311,9 +325,16 @@ async function conceptRacer({ length = 4.45, paint = null } = {}) {
     if (/Dashboard/i.test(n)) { c.emissive?.set(0x000000); }
     if (/Headlight/i.test(n)) { c.emissive = new THREE.Color(0xfff0dc); lamps.head.push(c); }
     if (/Brakelight/i.test(n)) { c.emissive = new THREE.Color(0xff1a0c); lamps.brake.push(c); }
+    if (/Tiretread/i.test(n)) { c.roughness = 0.86; c.normalScale?.multiplyScalar(0.6); } // rubber, not a string of glints along the shoulder
+    if (/Paint/i.test(n)) c.side = THREE.FrontSide; // inner faces get a black shell below
     done.set(mat, c); return c;
   };
   m.traverse((o) => { if (o.isMesh) o.material = Array.isArray(o.material) ? o.material.map(fix) : fix(o.material); });
+  // panel shut lines: the double-sided paint let the low sun light the INSIDE of the panels through every gap (dotted bright
+  // seams). Paint renders front faces only; a black back-face shell on the same geometry closes each gap like a real flange.
+  const shell = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide }); const painted = [];
+  m.traverse((o) => { if (o.isMesh && !Array.isArray(o.material) && /Paint/i.test(o.material.name)) painted.push(o); });
+  for (const o of painted) { const s = new THREE.Mesh(o.geometry, shell); s.name = `${o.name}Shell`; o.add(s); }
   hide(m, /^(Engine|Axles|InteriorPedal|InteriorCage)/); // never seen through the dark glass; the floor and under-bonnet panels stay: they close the shut lines
   // The glTF wheel nodes carry rotations: the rears a spin phase about the axle, the fronts also 30° of steering lock
   // (axle (0.866, -0.5, 0) in the body frame). Yaw every axle back onto the body's +x so all four wheels track straight.
@@ -343,17 +364,18 @@ async function conceptRacer({ length = 4.45, paint = null } = {}) {
 /** Photographic backdrop: the 4K panorama sampled directly on a far dome (same orientation convention as useHdri's rotation).
  *  Avoids the PMREM / cube conversion of a 4K image (minutes in software GL); the DOF defocuses it like a real lens.
  *  warm: golden-hour grade of the sky (luminance kept, blue turned to amber haze, strongest away from the sun disc). */
-function panoDome(tex, { rotation = 0, intensity = 1, radius = 1800, warm = 0, sun = v3(1, 0, 0) } = {}) {
+function panoDome(tex, { rotation = 0, intensity = 1, radius = 1800, warm = 0, lift = 0, sun = v3(1, 0, 0) } = {}) {
   const mat = new THREE.ShaderMaterial({
-    uniforms: { map: { value: tex }, rot: { value: rotation }, k: { value: intensity }, warm: { value: warm }, sunD: { value: sun.clone().normalize() } }, side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
+    uniforms: { map: { value: tex }, rot: { value: rotation }, k: { value: intensity }, warm: { value: warm }, lift: { value: lift }, sunD: { value: sun.clone().normalize() } }, side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
     vertexShader: `varying vec3 vDir; void main(){ vec4 wp = modelMatrix * vec4(position, 1.); vDir = wp.xyz - cameraPosition; gl_Position = projectionMatrix * viewMatrix * wp; }`,
-    fragmentShader: `uniform sampler2D map; uniform float rot, k, warm; uniform vec3 sunD; varying vec3 vDir;
+    fragmentShader: `uniform sampler2D map; uniform float rot, k, warm, lift; uniform vec3 sunD; varying vec3 vDir;
       void main(){ vec3 d = normalize(vDir); float u = (atan(d.z, d.x) + rot) * 0.15915494 + 0.5, v = asin(clamp(d.y, -1., 1.)) * 0.31830989 + 0.5;
         float u1 = fract(u), u2 = fract(u + 0.5) - 0.5; u = fwidth(u1) <= fwidth(u2) + 1e-5 ? u1 : u2; // no mip seam where atan wraps
-        vec3 c = texture2D(map, vec2(u, v)).rgb * k;
-        float l = dot(c, vec3(0.2126, 0.7152, 0.0722)), sky = smoothstep(-0.03, 0.06, d.y), toSun = max(dot(d, sunD), 0.);
+        float toSun = max(dot(d, sunD), 0.), sky = smoothstep(-0.03, 0.06, d.y);
+        vec3 c = texture2D(map, vec2(u, v)).rgb * k * (1. + lift * sky * (1. - toSun)); // the anti-sun sky lifted toward a bright afterglow
+        float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
         vec3 amber = l * mix(vec3(1.32, 0.95, 0.6), vec3(1.5, 0.9, 0.45), smoothstep(0.25, 0., d.y)) * (1. + 0.35 * pow(toSun, 3.)); // deeper amber toward the horizon and the sun
-        c = mix(c, amber, warm * sky * (1. - smoothstep(0.9, 0.995, toSun)));
+        c = mix(c, amber, warm * sky * (1. - smoothstep(0.97, 0.999, toSun))); // the sun disc itself keeps its own colour
         gl_FragColor = vec4(c, 1.); }`,
   });
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 24), mat); m.renderOrder = -100; m.frustumCulled = false; return m;
@@ -387,7 +409,7 @@ function hotDisc(dR, grain) {
       { float band = smoothstep(0.5, 0.6, dRr); float core = exp(-pow((dRr - 0.8) / 0.11, 2.)); float rim = smoothstep(0.9, 1.0, dRr);
         float T = heat * band * (0.42 + 0.58 * core - 0.08 * rim) * (0.9 + 0.12 * clamp(dGrain, 0., 2.));
         if (!face) T = heat * 0.5 * band; // the outer edge: deep red
-        totalEmissiveRadiance += heatRamp(T) * 1.6; }`);
+        totalEmissiveRadiance += heatRamp(T) * 1.3; }`);
   };
   mat.customProgramCacheKey = () => 'hotDisc'; return { mat, u };
 }
@@ -421,19 +443,22 @@ export async function buildS6(ctx) {
   // ---------------------------------------------------------------- 6.2 brake disc glowing
   // A real hot iron disc behind the wire spokes: machined, cross-drilled, glowing by temperature (red rim → yellow swept band),
   // gripped by a champagne-gold caliper; exposure held so the disc keeps its detail.
-  const bs = makeSet(null, { bg: 0x000000 }); await useHdri(bs.scene, HDRI.studio, { env: 0.3, rotation: 0.4 }); const bcar = buildCar('classic', { fasteners: false, engine: false, interior: false, seed: 92 }); bs.scene.add(bcar.group);
-  const wheelF = bcar.wheels.find((w) => w.front && w.side > 0); wheelF.group.visible = true; wheelF.group.userData.spin.children[0].visible = false; // tyre hidden: see the disc through the spokes
-  bcar.brakeGlow(0); // only this wheel's disc is hot (its own material below)
+  const bs = makeSet(null, { bg: 0x000000 }); await useHdri(bs.scene, HDRI.sunsetSea, { env: 0.12, rotation: 0.4 }); // dim warm reflections: the disc is the light
+  const bcar = buildCar('classic', { fasteners: false, engine: false, interior: false, seed: 92 }); bs.scene.add(bcar.group);
+  const wheelF = bcar.wheels.find((w) => w.front && w.side > 0); wheelF.group.visible = true;
+  { const keep = new Set(); for (const g of [wheelF.group, wheelF.brake]) g.traverse((o) => keep.add(o)); bcar.group.traverse((o) => { if (o.isMesh && !keep.has(o)) o.visible = false; }); } // macro: this wheel and its brake only, in the dark
+  wheelF.group.traverse((o) => { if (o.isMesh && o.geometry.type === 'ExtrudeGeometry') o.visible = false; }); // the knock-off spinner would stand as a dark slab across the lens
   const { disc, caliper } = wheelF.brake.userData; const dR = disc.geometry.parameters.radiusTop; const hot = hotDisc(dR, grassPhoto); disc.material = hot.mat;
-  caliper.geometry = caliperGeo(dR); caliper.position.set(0, 0, 0); caliper.rotation.set(0, 0, 2.3);
-  caliper.material = new THREE.MeshPhysicalMaterial({ color: 0xcdb48a, metalness: 0.7, roughness: 0.34, clearcoat: 0.8, clearcoatRoughness: 0.1 });
+  caliper.geometry = caliperGeo(dR); caliper.position.set(0, 0, 0); caliper.rotation.set(0, 0, 1.3); // gripping the disc at twelve-thirty, in front of the glow
+  caliper.material = envOn(new THREE.MeshPhysicalMaterial({ color: 0xcdb48a, metalness: 0.55, roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.1 }), bs.scene, 1.4); // champagne gold that reads against the glow
   const discGlow = point(bs.scene, { color: 0xff5a10, intensity: 0, pos: [1.3, 0.35, 0.6] });
   bs.onUpdate((t) => { const k = smooth(clamp((t - 50.7) / 0.8)); hot.u.heat.value = 0.25 + k * 0.75; discGlow.intensity = 0.3 + k * 1.0; bcar.spin((t - 50.9) * 2.5); disc.rotation.y = -(t - 50.9) * 2.5; });
-  spot(bs.scene, { intensity: 10, pos: [3, 1.5, 2.5], target: [1.3, 0.35, 0.7], angle: 0.3, penumbra: 1, color: 0xffd9a8 });
+  { const cw = caliper.getWorldPosition(new THREE.Vector3()); bcar.group.updateMatrixWorld(true); caliper.getWorldPosition(cw); // a narrow warm spot just on the caliper
+    spot(bs.scene, { intensity: 2.5, pos: cw.clone().add(v3(0.6, 0.9, 1.2)).toArray(), target: cw.toArray(), angle: 0.08, penumbra: 0.8, color: 0xffd2a0 }); }
   shots.push(shot('s6.2', 50.9, 51.7, bs, (lt, u, cam) => {
     const c = v3(bcar.shape.wheels[0].x, 0.335, 0.6); const d = aim(cam, c.clone().add(v3(lerp(0.4, 0.3, u), lerp(0.12, 0.05, u), 0.5)), c.clone().add(v3(-0.02, 0.0, -0.05)), { fov: 34, near: 0.01, far: 30 });
     return { focus: d, aperture: 10 };
-  }, { trans: { type: 'flash', dur: 0.3 }, grade: { exposure: 0.85, bloom: 0.45, streak: 0.18, threshold: 1.4 } }));
+  }, { trans: { type: 'flash', dur: 0.3 }, grade: { exposure: 0.92, bloom: 0.35, streak: 0.06, threshold: 1.6 } }));
 
   // ---------------------------------------------------------------- 6.3 gearshift into the gate
   const gs = makeSet(null, { bg: null }); const G = gs.scene;
@@ -448,17 +473,24 @@ export async function buildS6(ctx) {
     for (let i = 0; i < 3; i++) { h.absarc(GX[i], GY, GW, Math.PI, 0, true); if (i < 2) { h.lineTo(GX[i] + GW, GW); h.lineTo(GX[i + 1] - GW, GW); } else h.lineTo(GX[i] + GW, -GY); }
     for (let i = 2; i >= 0; i--) { h.absarc(GX[i], -GY, GW, 0, Math.PI, true); if (i > 0) { h.lineTo(GX[i] - GW, -GW); h.lineTo(GX[i - 1] + GW, -GW); } else h.lineTo(GX[0] - GW, GY); }
     plate.holes.push(h); }
-  gate.add(mesh(new THREE.ExtrudeGeometry(plate, { depth: 0.007, bevelEnabled: true, bevelSize: 0.0018, bevelThickness: 0.0018, bevelSegments: 3, curveSegments: 12 }), M.titanium(), { r: [-Math.PI / 2, 0, 0] }));
+  // the slot walls are shadowed by the plate itself (no shadow maps here): darkened in the shader, so each slot reads as a cut, not a groove
+  const gateMat = M.titanium().clone(); gateMat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vOP; varying vec3 vON;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvOP = position; vON = normal;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vOP; varying vec3 vON;').replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+      { float wall = (1. - smoothstep(0.35, 0.8, abs(normalize(vON).z))) * step(abs(vOP.x), 0.06) * step(abs(vOP.y), 0.05); float k = mix(1., 0.12, wall);
+        reflectedLight.directDiffuse *= k; reflectedLight.directSpecular *= k; reflectedLight.indirectDiffuse *= k; reflectedLight.indirectSpecular *= k; }`); };
+  gateMat.customProgramCacheKey = () => 'gateWalls';
+  gate.add(mesh(new THREE.ExtrudeGeometry(plate, { depth: 0.007, bevelEnabled: true, bevelSize: 0.0018, bevelThickness: 0.0018, bevelSegments: 3, curveSegments: 12 }), gateMat, { r: [-Math.PI / 2, 0, 0] }));
   const consoleMat = new THREE.MeshPhysicalMaterial({ map: veneer[0], color: 0x52301e, bumpMap: veneer[1], bumpScale: 0.6, roughnessMap: veneer[2], roughness: 0.55, clearcoat: 1, clearcoatRoughness: 0.05 }); envOn(consoleMat, G, 0.3);
   gate.add(mesh(new THREE.PlaneGeometry(1.4, 1.2), consoleMat, { r: [-Math.PI / 2, 0, 0], p: [0, -0.004, -0.2] })); // walnut-stained, lacquered photo wood falling off into the dark
-  gate.add(mesh(new THREE.PlaneGeometry(0.16, 0.135), M.leather(0x0b0908), { r: [-Math.PI / 2, 0, 0], p: [0, -0.0025, 0] })); // dark leather well under the slots
+  gate.add(mesh(new THREE.PlaneGeometry(0.16, 0.135), new THREE.MeshBasicMaterial({ color: 0x000000 }), { r: [-Math.PI / 2, 0, 0], p: [0, -0.03, 0] })); // the slots open onto darkness: a real cut-through gate
   const PIV = 0.2; const lever = new THREE.Group(); lever.position.set(0, -PIV, 0); G.add(lever); // pivots below the gate, so the shaft travels along the slots
   lever.add(mesh(new THREE.CylinderGeometry(0.0046, 0.0062, PIV + 0.17, 20), M.chrome(), { p: [0, (PIV + 0.17) / 2, 0] })); lever.add(mesh(new THREE.SphereGeometry(0.021, 32, 20), M.walnut(), { p: [0, PIV + 0.18, 0] }));
   const boot = mesh(new THREE.SphereGeometry(0.016, 24, 12, 0, TAU, 0, Math.PI / 2), M.leather(0x1c1310), { s: [1, 0.42, 1] }); G.add(boot); // small leather boot round the shaft, seen through the slot
   spot(G, { color: 0xffc27a, intensity: 5, pos: [-0.55, 0.95, 0.45], target: [0, 0.02, 0], angle: 0.32, penumbra: 1 }); // pool of warm light on the gate; the console falls off into the dark
   gs.onUpdate((t) => {
     const x = lerp(0, GX[2], smooth(clamp((t - 51.7) / 0.15))), z = lerp(0, -GY, smooth(clamp((t - 51.85) / 0.35))); // across the plane, then up into fifth
-    lever.rotation.set(Math.atan(z / PIV), 0, -Math.atan(x / PIV)); boot.position.set(x, -0.0045, z);
+    lever.rotation.set(Math.atan(z / PIV), 0, -Math.atan(x / PIV)); boot.position.set(x, -0.0012, z);
   });
   shots.push(shot('s6.3', 51.7, 52.5, gs, (lt, u, cam) => {
     const d = aim(cam, v3(lerp(0.3, 0.26, u), lerp(0.24, 0.2, u), 0.34), v3(0.0, 0.085, -0.01), { fov: 32, near: 0.005, far: 20 }); return { focus: d, aperture: 8 };
@@ -467,16 +499,23 @@ export async function buildS6(ctx) {
   // ---------------------------------------------------------------- 6.5/6.6 the coast (built before the visor so it can be reflected)
   // Real sunset over the sea (Venice lagoon panorama) for sky light, paint/chrome/sea reflections and the backdrop; photo-detailed
   // terrain with baked long golden-hour shadows (terrain + pines), photo-normal-mapped sea, Armco along the cliff edge.
-  const cs = makeSet(null, { bg: null, fog: new THREE.Fog(0xc99a74, 260, 1500) }); const C = cs.scene;
+  const cs = makeSet(null, { bg: null, fog: new THREE.Fog(0xc49470, 320, 1800) }); const C = cs.scene;
   const SUN_PHI = 2.78, ROT5 = (VENICE_SUN[0] - 0.5) * TAU - SUN_PHI;
-  await useHdri(C, HDRI.sunsetSea, { env: 0.9, background: true, blur: 0.03, bgIntensity: 0.9, rotation: ROT5 });
+  await useHdri(C, HDRI.sunsetSea, { env: 0.9, background: true, blur: 0.03, bgIntensity: 0.75, rotation: ROT5 });
   const coast = buildCoast({}); C.add(coast);
   const sunDir5 = v3(Math.cos(0.24) * Math.cos(SUN_PHI), Math.sin(0.24), Math.cos(0.24) * Math.sin(SUN_PHI)); // key light on the panorama's sun azimuth, 14° up
   const sun = dirLight(C, { color: 0xffc58a, intensity: 3.4, pos: sunDir5.clone().multiplyScalar(500).toArray() });
   const coastFx = dressCoast(coast, { scene: C, sunDir: sunDir5, grass: grassPhoto, water: waterN, dirt });
   const convoyPresets = [['classic', 0x050505], ['gt', 0x3d0b12], ['roadster', 0x101a14], ['supercar', 0x9a9b9f], ['classic', 0xcdb48a]];
   const sunAng5 = Math.atan2(-sunDir5.z, -sunDir5.x);
-  const convoy = convoyPresets.map(([p, c], i) => { const car = buildCar(p, { lite: true, color: c, seed: 100 + i }); car.lights(0.4, 1); C.add(car.group); const sh = carShadow(car.spec.L, 1.9, { sun: sunDir5, long: 7, strength: 0.85 }); car.group.add(sh); car.shadow = sh; return car; });
+  // the key light's mirror glint on gloss paint and chrome bloomed into a white ball over each car; the sunset still reflects from the panorama
+  const softGlint = new Map(); const tame = (m) => { if (!m.isMeshStandardMaterial) return m; if (softGlint.has(m)) return softGlint.get(m); const c = m.clone();
+    if (c.transparent && c.isMeshPhysicalMaterial) { c.clearcoat = 0; c.opacity = 0.93; envK(c, C, 0.55); } else envK(c, C, 0.6); // glass: tinted dark (the sun's glitter on the sea behind no longer burns through it), one reflection; paint: the HDR sun at grazing incidence stays a highlight
+    c.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+      reflectedLight.directSpecular *= 0.3;${c.isMeshPhysicalMaterial && c.clearcoat > 0 ? ' clearcoatSpecularDirect *= 0.3;' : ''}`); };
+    c.customProgramCacheKey = () => `softGlint${c.isMeshPhysicalMaterial && c.clearcoat > 0}`; softGlint.set(m, c); return c; };
+  const convoy = convoyPresets.map(([p, c], i) => { const car = buildCar(p, { lite: true, color: c, seed: 100 + i }); car.lights(0.2, 1); C.add(car.group);
+    car.group.traverse((o) => { if (o.isMesh) o.material = Array.isArray(o.material) ? o.material.map(tame) : tame(o.material); }); for (const g of car.lampGlows) if (g.isSprite) g.visible = false; /* lit bulbs, no toy-like halo balls in daylight */ const sh = carShadow(car.spec.L, 1.9, { sun: sunDir5, long: 7, strength: 0.85 }); car.group.add(sh); car.shadow = sh; return car; });
   const roadLen = coast.userData.road.getLength();
   const convoyAt = (t) => { const s0 = 0.06 + (t - 52.5) * (17 / roadLen); convoy.forEach((car, i) => { const { p, heading } = coast.userData.onRoad(s0 - i * (16 / roadLen)); car.group.position.copy(p); car.group.rotation.y = heading; car.spin((t - 50) * 50); car.shadow.userData.long.rotation.y = -sunAng5 - heading; }); return s0; };
   cs.onUpdate((t) => { convoyAt(t); coastFx.update(t); });
@@ -508,9 +547,9 @@ export async function buildS6(ctx) {
     const lead = convoy[0].group, mid = convoy[2].group; const fwd = v3(Math.cos(lead.rotation.y), 0, -Math.sin(lead.rotation.y)); const side = v3(-fwd.z, 0, fwd.x);
     const k = smooth(u); const p = lead.position.clone().addScaledVector(fwd, lerp(10, 20, k)).addScaledVector(side, -lerp(4.6, 9, k)).add(v3(0, lerp(2.0, 10, k), 0));
     p.y = Math.max(p.y, coastFx.H(p.x, p.z) + 1.8);
-    const tgt = new THREE.Vector3().lerpVectors(lead.position, mid.position, k * 0.8).addScaledVector(side, lerp(5, 9, k)).add(v3(0, lerp(0.9, -0.5, k), 0));
+    const tgt = new THREE.Vector3().lerpVectors(lead.position, mid.position, k * 0.8).addScaledVector(side, lerp(5, 6.5, k)).add(v3(0, lerp(0.9, -0.5, k), 0)); // the sea and horizon from the first frame; the low sun kept toward the frame edge
     const d = aim(cam, p, tgt, { fov: lerp(30, 38, k), near: 0.1, far: 3000, roll: lerp(-0.03, 0.02, k) }); return { focus: d, aperture: lerp(3, 0.8, k) };
-  }, { trans: { type: 'luma', dur: 0.5 }, grade: { exposure: 1.0, bloom: 0.55, streak: 0.35, threshold: 1.3, gain: [1.08, 1.0, 0.86], saturation: 1.05 } }));
+  }, { trans: { type: 'luma', dur: 0.5 }, grade: { exposure: 1.0, bloom: 0.32, streak: 0.2, threshold: 1.8, gain: [1.08, 1.0, 0.86], saturation: 1.05 } }));
   // 6.6 — vertigo aerial: top-down, rotating and zooming over the switchbacks
   shots.push(shot('s6.6', 56.6, 59.4, cs, (lt, u, cam, t) => {
     const mid = convoy[2].group.position; const ang = lerp(0.3, -0.5, u); const h = lerp(120, 70, smooth(u));
@@ -524,14 +563,20 @@ export async function buildS6(ctx) {
   const ci = makeSet(null, { bg: null }); const CI = ci.scene; const PHI7 = -0.5; const ROT7 = rotFor(PHI7);
   const pano4k = (await photo('hdri/' + HDRI.sunriseField4k, { srgb: true, anisotropy: 4 })).clone(); pano4k.wrapS = THREE.RepeatWrapping; pano4k.wrapT = THREE.ClampToEdgeWrapping; pano4k.needsUpdate = true;
   const sunDir7 = panoDir(SPRUIT_SUN[0], SPRUIT_SUN[1], ROT7);
-  CI.add(panoDome(pano4k, { rotation: ROT7, intensity: 0.8, warm: 0.7, sun: sunDir7 })); // golden-hour sky throughout the pass, not a cool dawn
-  await useHdri(CI, HDRI.sunriseField, { env: 0.85, rotation: ROT7 });
+  CI.add(panoDome(pano4k, { rotation: ROT7, intensity: 0.9, warm: 0.8, lift: 0.9, sun: sunDir7 })); // golden-hour sky throughout the pass, not a cool dawn
+  { // IBL graded like the backdrop (the HDR's blue zenith otherwise paints the flanks blue against a golden sky): the 1k HDR
+    // through the same warm dome, captured to a cube and prefiltered. The dome is already yawed, so no environment rotation.
+    const envScene = new THREE.Scene(); envScene.add(panoDome((await hdri(HDRI.sunriseField)).equirect, { rotation: ROT7, intensity: 1, warm: 0.8, lift: 0.9, sun: sunDir7 }));
+    const rt = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType }); new THREE.CubeCamera(1, 3000, rt).update(ctx.renderer, envScene);
+    const pg = new THREE.PMREMGenerator(ctx.renderer); CI.environment = pg.fromCubemap(rt.texture).texture; pg.dispose(); rt.dispose();
+    CI.environmentIntensity = 0.85; CI.environmentRotation = new THREE.Euler(); }
+  dirLight(CI, { color: 0xffb877, intensity: 2.2, pos: sunDir7.clone().multiplyScalar(100).toArray() }); // the low sun itself: warm grazing key on the body, the Armco and the fence
   const circuit = buildCircuit(); CI.add(circuit);
   for (const o of [...circuit.children]) {
     const gp = o.geometry?.parameters ?? {};
-    if (gp.width === 400 && gp.height === 14) { // track: albedo and normal tiled together (2.5 m), neutral warm grey, sun sheen only at grazing angles
-      const mt = o.material; mt.map = mt.map.clone(); mt.normalMap = mt.normalMap.clone(); for (const tx of [mt.map, mt.normalMap]) { tx.repeat.set(160, 5.6); tx.needsUpdate = true; }
-      mt.color.setRGB(0.86, 0.8, 0.78); mt.roughness = 0.84; mt.normalScale.set(0.8, 0.8); }
+    if (gp.width === 400 && gp.height === 14) { // track: albedo and normal tiled together (1.25 m tiles: fine aggregate), shallow relief, neutral grey under the warm grade
+      const mt = o.material; mt.map = mt.map.clone(); mt.normalMap = mt.normalMap.clone(); for (const tx of [mt.map, mt.normalMap]) { tx.repeat.set(320, 11.2); tx.anisotropy = 16; tx.needsUpdate = true; }
+      mt.color.setRGB(0.56, 0.58, 0.68); mt.roughness = 0.9; mt.normalScale.set(0.3, 0.3); }
     else if (gp.width === 400 && gp.height === 200) { o.material = new THREE.MeshStandardMaterial({ map: grass7, color: 0xa08c5c, roughness: 1 }); } // verge: photo grass
     else if (gp.width === 400 && gp.depth === 0.4) circuit.remove(o); // concrete wall → Armco below
     else if (gp.height === 3.5) circuit.remove(o); // bare poles → catch-fence posts below
