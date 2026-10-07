@@ -585,8 +585,8 @@ export async function buildS6(ctx) {
   const racer = await conceptRacer({ length: 4.45 }); CI.add(racer.group); racer.lights(1, 1);
   racer.group.add(carShadow(4.45, 1.95, { sun: sunDir7, long: 9 }));
   sunSprite(CI, flare0, sunDir7, { size: 320, intensity: 5 });
-  const sparks = sparkStream(1100, ctx.res); CI.add(sparks);
-  ci.onUpdate((t) => { const lt = t - 59.4; const x = -14 + lt * 9.5; racer.group.position.set(x, 0.0, -1.5); racer.group.rotation.y = 0; racer.spin(x / racer.radius); sparks.position.set(x + 0.4, 0.05, -1.5); sparks.material.uniforms.time.value = lt * 0.6; sparks.material.uniforms.on.value = smooth(clamp(lt / 0.3)); });
+  const sparks = sparkStream(1400, ctx.res); CI.add(sparks); // grinding off the rear skid plate, sprayed back and toward the lens so the body doesn't hide them
+  ci.onUpdate((t) => { const lt = t - 59.4; const x = -14 + lt * 9.5; racer.group.position.set(x, 0.0, -1.5); racer.group.rotation.y = 0; racer.spin(x / racer.radius); sparks.position.set(x - 1.55, 0.06, -1.05); sparks.rotation.y = 0.45; sparks.material.uniforms.time.value = lt * 0.6; sparks.material.uniforms.on.value = smooth(clamp(lt / 0.3)); });
   shots.push(shot('s6.7', 59.4, 62.0, ci, (lt, u, cam) => {
     const x = racer.group.position.x; const d = aim(cam, v3(lerp(-4, 6, u), 0.35, 4.2), v3(x + 0.6, 0.45, -1.5), { fov: 36, near: 0.05, far: 2000 }); return { focus: d, aperture: 5 };
   }, { trans: { type: 'whip', dur: 0.4, dir: [1, 0] }, grade: { exposure: 1.1, bloom: 0.6, streak: 0.35, threshold: 1.1, gain: [1.1, 1.0, 0.84] } }));
