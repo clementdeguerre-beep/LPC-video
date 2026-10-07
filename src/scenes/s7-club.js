@@ -24,7 +24,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 const VIEW = { k: 0.28, rot: -0.25, x: 8, z: 13, clamp: 25, sun: 1.2 }; // lounge view: panorama brightness, yaw, projection centre, sun-disc clamp, sunlight
 const FLOOR_CCR = 0.3; // lounge floor lacquer roughness (spreads the low sun's glare into a soft sheen)
 const HSKIN = 0x958d89, WSKIN = 0xa38d7c; // hand / wrist skin tints (neutral beige: the warm light and grade supply the warmth)
-const HAND_RES = 128, HKEY = 0.2, HTILT = 0.04, HAPT = 70; // hand polygonisation grid, handshake key (rim-lit near-silhouette), clasp tilt, aperture
+const HAND_RES = 128, HKEY = 0.2, HTILT = 0.04, HAPT = 14; // hand polygonisation grid, handshake key (rim-lit near-silhouette), clasp tilt, aperture
+const DOOR = { x: 0.35, env: 1.6, yaw: -0.35 }; // handshake: car placement (door panel behind the clasp), paint reflection strength
 const CARD = { aniso: 0.85 }; // brushed titanium card face
 const CP = { blur: 0.08, k: 0.15, rot: 2.35, env: 0.15, edge: [0.7, 0.62, 0.5] }; // coupes: sunset backdrop defocus, brightness, yaw; crystal reflections; grazing-edge absorption
 const FIRE_YAW = -1.0, CAM_YAW = -0.27; // flames face the lounge camera path; the bellows camera is trained on the cars outside
@@ -300,11 +301,11 @@ function shirtCuff(xe, x0, ry, rz, { k = [1.28, 1.15], T = 0.0024, mat, stitchMa
   // the cloth is not a tube: a gentle oval, a soft buckle near the top-front and a shallow fold that dies away from the edge
   const deform = (x, c, s, u) => { const e = clamp(1 - (xe - x) / 0.05); const th = Math.PI + u * TAU; return 1 + fold * (0.012 * Math.sin(2 * th + 0.6) + e * (0.018 * Math.sin(3 * th + 2.2) - 0.022 * Math.exp(-(((th - 2.35 * Math.PI) / 0.18) ** 2)))); };
   const g = new THREE.Group(); const m = new THREE.Mesh(sweepX(st, ry, rz, { n, uvScale: weave, deform, arc: true }), mat); m.material.side = THREE.DoubleSide; g.add(m);
-  // stitch line 4 mm from the edge, following the deformed surface
-  const xs = xe - 0.0042, ns = 64; const im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.00036, 0.0019, 0.0006), stitchMat, ns); const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+  // stitch line 4 mm from the edge (≈ 2 mm stitches), following the deformed surface
+  const xs = xe - 0.0042, ns = 76; const im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.0003, 0.0017, 0.00045), stitchMat, ns); const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
   for (let i = 0; i < ns; i++) {
     const u = (i + 0.5) / ns, th = Math.PI + u * TAU, d = deform(xs, Math.cos(th), Math.sin(th), u) * 1.006; const [y, z] = supPt(th, ry * kH[0] * d, rz * kH[1] * d);
-    const [y2, z2] = supPt(th + 0.01, ry * kH[0] * d, rz * kH[1] * d); e.set(Math.atan2(z2 - z, y2 - y), 0, 0); // long axis along the circumference q.setFromEuler(e); m4.compose(new THREE.Vector3(xs, y, z), q, new THREE.Vector3(1, 1, 1)); im.setMatrixAt(i, m4);
+    const [y2, z2] = supPt(th + 0.01, ry * kH[0] * d, rz * kH[1] * d); e.set(Math.atan2(z2 - z, y2 - y), 0, 0); q.setFromEuler(e); m4.compose(new THREE.Vector3(xs, y, z), q, new THREE.Vector3(1, 1, 1)); im.setMatrixAt(i, m4); // long axis along the circumference
   }
   g.add(im); return g;
 }
@@ -641,7 +642,7 @@ export async function buildS7(ctx) {
   rig.add(new THREE.Mesh(sweepX(wristX, RY, RZ, { uvScale: [1, 1], n: 96, deform: wristDeform }), wskin));
   // the shirt cuff: oxford weave, double-folded hem band with a rolled edge and stitch line, a soft buckle in the cloth
   const ox = oxford(); const cuffM = new THREE.MeshPhysicalMaterial({ color: 0xe6dfd2, map: ox.map, roughness: 0.82, metalness: 0, normalMap: ox.normal, normalScale: new THREE.Vector2(0.6, 0.6), sheen: 0.6, sheenRoughness: 0.5, sheenColor: new THREE.Color(0xffffff) });
-  rig.add(shirtCuff(-0.0445, -0.17, RY, RZ, { k: [1.28, 1.15], mat: cuffM, stitchMat: new THREE.MeshStandardMaterial({ color: 0xb3a894, roughness: 0.7 }), weave: [26, 133] }));
+  rig.add(shirtCuff(-0.0445, -0.17, RY, RZ, { k: [1.28, 1.15], mat: cuffM, stitchMat: new THREE.MeshStandardMaterial({ color: 0xd4cbba, roughness: 0.55 }), weave: [26, 133] }));
   const sleeveX = [[-0.32, 1.72, 1.45], [-0.085, 1.62, 1.38], [-0.079, 1.58, 1.35], [-0.0765, 1.48, 1.3], [-0.078, 1.4, 1.26], [-0.089, 1.38, 1.25]];
   rig.add(new THREE.Mesh(sweepX(sleeveX, RY, RZ, { uvScale: [1, 1] }), woolMat(0x15171d)));
   const horn = new THREE.MeshPhysicalMaterial({ color: 0x1e140d, roughness: 0.28, metalness: 0, clearcoat: 0.7 });
@@ -673,15 +674,16 @@ export async function buildS7(ctx) {
   // ---------------------------------------------------------------- 7.4 handshake beside a car door
   const hsS = makeSet(null); const HS = hsS.scene; lightWith(HS, HALL, { k: 1.25, rot: -2.51, bg: 0.22, blur: 0.3 });
   const doorCar = await conceptCar({ paint: 0x3d0b12, metal: 0.65, rough: 0.32, drop: /^(Interior|Wheel|Engine|Body(Underside|Hood|Rearwindow|Taillight|TurnsignalsRear|Headlights|Windshield)|$)/ }); HS.add(doorCar);
-  { const b = new THREE.Box3().setFromObject(doorCar); doorCar.position.set(0.35, -0.98 - b.min.y, -0.55 - 1.0); }
+  { const b = new THREE.Box3().setFromObject(doorCar); doorCar.position.set(DOOR.x, -0.98 - b.min.y, -0.55 - 1.0); doorCar.rotation.y = DOOR.yaw; }
+  doorCar.traverse((o) => { if (o.isMesh) for (const m of [].concat(o.material)) if (/Paint 1/i.test(m.name || '') && !m.envMap) envK(m, HS, DOOR.env); }); // the burgundy door, a little brighter in the hall's reflections
   // two right hands sculpted as one continuous skin each, clasped palm to palm. A (from the left, with the gold watch of the
   // previous shot) shows the back of its hand, its fingers wrapping away round B's palm; B's fingers lie along A's palm, hidden
   // behind it, and only B's thumb crosses over the top. Rim-lit near-silhouettes: the cuffs, watch and burgundy door carry the frame.
-  const hgA = gripHandGeometry(HAND_RES, { knuckle: 0.8 }), hgB = gripHandGeometry(HAND_RES, { flex: [[0.24, 0.34, 0.2], [0.24, 0.36, 0.2], [0.27, 0.38, 0.22], [0.3, 0.4, 0.24]], knuckle: 0.6 });
+  const hgA = gripHandGeometry(HAND_RES, { flex: [[1.05, 1.15, 0.5], [1.1, 1.15, 0.5], [1.15, 1.15, 0.5], [1.2, 1.15, 0.5]], knuckle: 0.8 }), hgB = gripHandGeometry(HAND_RES, { flex: [[0.24, 0.34, 0.2], [0.24, 0.36, 0.2], [0.27, 0.38, 0.22], [0.3, 0.4, 0.24]], knuckle: 0.6 });
   const hskin = sssSkin(skinMat(), 0.25, { crease: knuckleCreases(), creaseK: 0.9 }); hskin.vertexColors = true; hskin.color.set(HSKIN); hskin.normalMap = skinRelief(); hskin.normalScale.set(0.35, 0.35); hskin.roughness = 0.55; hskin.sheen = 0.25; hskin.sheenColor.set(0xa8a09a);
-  const nailM = new THREE.MeshPhysicalMaterial({ color: 0x94796c, roughness: 0.42, metalness: 0, clearcoat: 0.2, clearcoatRoughness: 0.3 }); // skin-toned, a little glossier
+  const nailM = new THREE.MeshPhysicalMaterial({ color: 0xa88e80, roughness: 0.38, metalness: 0, clearcoat: 0.35, clearcoatRoughness: 0.25 }); // skin-toned, a little glossier
   const cot = new THREE.MeshPhysicalMaterial({ color: 0xd6d0c6, map: oxford().map, roughness: 0.82, metalness: 0, normalMap: oxford().normal, normalScale: new THREE.Vector2(0.5, 0.5), sheen: 0.6, sheenRoughness: 0.5, sheenColor: new THREE.Color(0xffffff) });
-  const stitchM = new THREE.MeshStandardMaterial({ color: 0xb0a898, roughness: 0.7 });
+  const stitchM = new THREE.MeshStandardMaterial({ color: 0xccc4b4, roughness: 0.55 }); // tone-on-tone thread
   const FA = Math.atan2(0.028, 0.134); // forearm drop
   let watchA = null;
   const arm = (suit, withWatch, hg) => {
@@ -692,13 +694,13 @@ export async function buildS7(ctx) {
     { const [y, z] = supPt(1.25, 0.0345, 0.0282); const cf = cufflink(0.0066); cf.position.set(-c0 - 0.024, y * 1.03, z * 1.03 + 0.0011); cf.rotation.set(-0.34, 0, 0); fore.add(cf); } // face turned to the lens
     if (withWatch) {
       const w = luxuryWatch(); w.rotation.x = Math.PI / 2; w.position.set(-0.04, -0.001, 0.0246); w.scale.setScalar(0.92); fore.add(w); watchA = w;
-      w.userData.crystal.specularIntensity = 0.35; envK(w.userData.crystal, HS, 0.3); // no bright window rectangle in the crystal
+      w.userData.crystal.specularIntensity = 0.3; envK(w.userData.crystal, HS, 0.1); // no bright window rectangle in the crystal
       const band = new THREE.Mesh(sweepX([[-0.0485, 1, 1], [-0.0315, 1, 1]], 0.0298, 0.0218, { n: 64 }), M.leather(0x2c0b0d)); band.material.side = THREE.DoubleSide; fore.add(band);
     }
     return g;
   };
   const hA = arm(0x14161c, true, hgA), hB = arm(0x221d1a, false, hgB); HS.add(hA); HS.add(hB);
-  envK(hskin, HS, 0.06); envK(cot, HS, 0.22); envK(nailM, HS, 0.12);
+  envK(hskin, HS, 0.06); envK(cot, HS, 0.22); envK(nailM, HS, 0.3);
   spot(HS, { intensity: HKEY, pos: [-0.25, 0.75, 0.7], target: [0, 0, 0], angle: 0.35, penumbra: 1, color: 0xffe0b8 }); spot(HS, { intensity: 3.6, pos: [-0.35, 0.5, -0.4], target: [0, 0, 0], angle: 0.4, penumbra: 1, color: 0xffb060 }); spot(HS, { intensity: 2.2, pos: [0.45, 0.4, -0.35], target: [0, 0, 0], angle: 0.4, penumbra: 1, color: 0xffd2a0 });
   hsS.onUpdate((t) => {
     // the clasp closes under the whip-pan, then one firm pump
@@ -707,7 +709,7 @@ export async function buildS7(ctx) {
     hB.position.set(-0.06 + 0.12 * Math.cos(a) + sep, pump - 0.005 + 0.12 * Math.sin(a), -0.015); hB.rotation.set(0, Math.PI, -a);
   });
   const wpA = new THREE.Vector3(); // focus is pulled to A's watch: the fingers, a few centimetres nearer, fall soft
-  shots.push(shot('s7.4', 65.0, 66.0, hsS, (lt, u, cam) => { aim(cam, v3(lerp(0.3, 0.2, u), 0.12, 0.75), v3(0, 0.0, -0.1), { fov: 30, near: 0.01, far: 30 }); hA.updateWorldMatrix(true, true); watchA.getWorldPosition(wpA); return { focus: cam.position.distanceTo(wpA), aperture: HAPT }; },
+  shots.push(shot('s7.4', 65.0, 66.0, hsS, (lt, u, cam) => { aim(cam, v3(lerp(0.12, 0.04, u), 0.12, 0.75), v3(0, 0.0, -0.1), { fov: 30, near: 0.01, far: 30 }); hA.updateWorldMatrix(true, true); watchA.getWorldPosition(wpA); return { focus: cam.position.distanceTo(wpA), aperture: HAPT }; },
     { trans: { type: 'whip', dur: 0.3, dir: [1, 0] }, grade: { exposure: 1.15, bloom: 0.45, streak: 0.25, threshold: 1.3, gain: [1.06, 1.0, 0.9] } }));
 
   // ---------------------------------------------------------------- 7.5 the members' lounge
@@ -766,7 +768,7 @@ export async function buildS7(ctx) {
   L.add(mesh(roundBox(2.95, 0.09, 0.56, 0.02), mantelM, { p: [0, 1.65, -4.74] }));
   const gilt = goldMat(0.32, 0xc89a58);
   L.add(mesh(roundBox(1.85, 1.02, 0.07, 0.03), gilt, { p: [0, 2.55, -4.95] }));
-  const printT = (await photo('hdri/' + HDRI.sunriseField4k, { srgb: true, anisotropy: 4 })).clone(); // shares S6's texture printT.repeat.set(0.33, 0.333); printT.offset.set(0.27, 0.383);
+  const printT = (await photo('hdri/' + HDRI.sunriseField4k, { srgb: true, anisotropy: 4 })).clone(); printT.repeat.set(0.33, 0.333); printT.offset.set(0.27, 0.383); // shares S6's texture (same cache key)
   const printM = new THREE.MeshStandardMaterial({ map: printT, emissiveMap: printT, emissive: new THREE.Color(0.42, 0.36, 0.28).multiplyScalar(0.2), roughness: 0.55, color: 0x707070 });
   printM.onBeforeCompile = (sh) => { const toned = (v) => `{ float l = dot(${v}, vec3(0.2126, 0.7152, 0.0722)); ${v} = mix(vec3(l) * vec3(1.18, 0.96, 0.7), ${v}, 0.3); }`; sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>\n${toned('diffuseColor.rgb')}`).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${toned('totalEmissiveRadiance')}`); };
   printM.customProgramCacheKey = () => 's7-print';
@@ -827,6 +829,8 @@ export async function buildS7(ctx) {
     L.add(mesh(new THREE.SphereGeometry(0.12, 24, 16), new THREE.MeshStandardMaterial({ color: 0xfff0d8, emissive: 0xffc070, emissiveIntensity: 1.15, roughness: 0.3 }), { p: [x, y, z] }));
     const g = glow(0xffc985, 0.45, 1.0); g.position.set(x, y, z); L.add(g);
   }
+  // the pendant over the coffee table pools its light straight down on the table and rug (tops of heads only, never faces)
+  spot(L, { intensity: 22, pos: [CX - 0.15, 2.95, CZ + 0.2], target: [CX + 0.1, 0, CZ], angle: 0.5, penumbra: 1, color: 0xffc98a });
   const winCoupe = crystalGlass(0.16, { bubbles: 10, seed: 41 }); winCoupe.position.set(-0.98, 0.636, 3.3); L.add(winCoupe); coupes.push(winCoupe);
   for (const c of coupes) c.traverse((o) => { if (o.material?.isMeshPhysicalMaterial && o.material.blending === THREE.AdditiveBlending) { o.material = o.material.clone(); o.material.roughness = 0.14; o.material.clearcoat = 0; } }); // no pin-point sun glints at room scale
   // side tables with Tiffany lamps; heritage bellows camera in the window corner
@@ -860,14 +864,14 @@ export async function buildS7(ctx) {
   chA.rotation.y = Math.PI * 0.55; // the window chair turned toward the bar and the cars
   const members = [
     { f: buildFigure({ suit: 0x14151a }), suit: 0x14151a, pose: 'sitCross', pos: [-1.7, 0.0, 3.0], ry: Math.PI * 0.55 }, // in the window chair
-    { f: buildFigure({ suit: 0x2a1418, gender: 'f', hair: 0x2b1d14 }), suit: 0x2a1418, pose: 'sit', pos: [CX - 1.65, 0.0, CZ - 1.33], ry: 0.85 }, // velvet sofa, turned to the room
+    { f: buildFigure({ suit: 0x170b0e, gender: 'f', hair: 0x1e140e }), suit: 0x170b0e, pose: 'sit', pos: [CX - 1.65, 0.0, CZ - 1.33], ry: 0.85 }, // velvet sofa, turned to the room
     { f: buildFigure({ suit: 0x0b0b0c, shirt: 0xe8e2d8 }), suit: 0x0b0b0c, pose: 'holdGlass', pos: [BX - 0.78, 0, 1.0], ry: Math.PI / 2 - 0.25 }, // at the bar
     { f: buildFigure({ suit: 0x1c1d22 }), suit: 0x1c1d22, pose: 'standHandsBehind', pos: [2.3, 0, 3.6], ry: 0.35 }, // at the glass, looking out at the cars
     { f: buildFigure({ suit: 0x0b0b0c, shirt: 0xe8e2d8 }), suit: 0x0b0b0c, pose: 'holdGlass', pos: [XF - 0.75, 0, -1.0], ry: Math.PI / 2 }, // barman, at the back-bar
   ];
   for (const m of members) { dressFigure(m.f, { suit: m.suit }); m.f.position.set(...m.pos); m.f.rotation.y = m.ry; m.f.userData.pose(POSES[m.pose]); L.add(m.f); }
   // light: fire, lamps, the low sun and the window-side cars (no front key on faces); reflections from the room itself
-  spot(L, { intensity: 60, pos: [-4, 3.8, -1], target: [0, 0.8, -3.5], angle: 0.8, penumbra: 1, color: 0xffc98a });
+  spot(L, { intensity: 60, pos: [-4, 3.8, -1], target: [-0.2, 1.4, -4.8], angle: 0.5, penumbra: 1, color: 0xffc98a }); // the fireplace wall and mantel only: the seated members stay out of it
   { const pm = new THREE.PMREMGenerator(R); const probe = pm.fromScene(L, 0.02, 0.05, 200, { size: 256, position: new THREE.Vector3(CX - 1.8, 1.4, CZ + 1.4) }).texture; pm.dispose(); L.environment = probe; L.environmentIntensity = 1.0; L.environmentRotation.set(0, 0, 0); }
   ls.onUpdate((t) => { fireMat.uniforms.time.value = t; const fl = noise1(t * 6) * 0.2 + noise1(t * 13) * 0.1; fireL.intensity = 6.5 * (1 + fl); hearthM.opacity = 0.3 * (1 + fl); members[2].f.userData.J['el1'].rotation.x = -1.5 - Math.max(0, Math.sin(t * 0.9)) * 0.25; for (const c of coupes) c.userData.update(t); });
   shots.push(shot('s7.5', 66.0, 72.0, ls, keyCam([v3(-8.4, 1.75, -1.8), v3(-7.2, 1.6, -0.6), v3(-6.0, 1.5, 0.2)], [v3(1.5, 1.0, 1.2), v3(2.0, 1.0, 2.0), v3(2.0, 0.9, 2.6)], { fov: 50, aperture: 1.5, ease: (x) => easeInOutCubic(x) }),
