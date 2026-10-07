@@ -422,7 +422,7 @@ export async function buildS5(ctx) {
   bld.add(mesh(new THREE.BoxGeometry(44, 0.6, 20), stone, { p: [0, 6.7, 0] }));
   bld.add(mesh(new THREE.BoxGeometry(44.2, 0.05, 20.2), M.matte(0x1a1918, 0.9), { p: [0, 7.02, 0] }));
   { // roof skylight: dark glazing in a dark bronze frame, the gallery's glow barely showing through
-    const skyGlass = envE(new THREE.MeshPhysicalMaterial({ color: 0x0b0a09, roughness: 0.15, metalness: 0, clearcoat: 0.5, clearcoatRoughness: 0.12, emissive: 0xffc890, emissiveIntensity: 0.06 }), 0.2);
+    const skyGlass = envE(new THREE.MeshStandardMaterial({ color: 0x0b0a09, roughness: 0.55, metalness: 0, emissive: 0xffc890, emissiveIntensity: 0.035 }), 0.06); // satin, not a mirror: no bright sky streak at grazing angles
     bld.add(mesh(new THREE.BoxGeometry(30.3, 0.05, 1.7), M.matte(0x1f1d1b, 0.75), { p: [0, 7.04, 0] })); bld.add(mesh(new THREE.BoxGeometry(30, 0.06, 1.4), skyGlass, { p: [0, 7.06, 0] }));
   }
   bld.add(mesh(new THREE.BoxGeometry(41, 0.3, 17), M.matte(0x151413, 0.8), { p: [0, 0.15, 0] })); // plinth
@@ -435,7 +435,8 @@ export async function buildS5(ctx) {
   for (const s of [-1, 1]) { const w = new THREE.Mesh(new THREE.PlaneGeometry(16, 6.1), inSide); w.position.set(s * 19.8, 3.35, 0); w.rotation.y = -s * Math.PI / 2; bld.add(w); }
   const inCeil = new THREE.Mesh(new THREE.PlaneGeometry(40, 16), M.matte(0x1d1915, 0.9)); inCeil.position.set(0, 6.38, 0); inCeil.rotation.x = Math.PI / 2; bld.add(inCeil);
   for (let i = -2; i <= 2; i++) { const ls = new THREE.Mesh(new THREE.PlaneGeometry(38, 0.1), M.emissive(0xffd9a8, 4)); ls.rotation.x = Math.PI / 2; ls.position.set(0, 6.36, i * 3); fittings.add(ls); }
-  const inGloss = envE(M.blackGloss().clone(), 0.012); // indoors under the roof: barely any sky in the gloss const inFloor = new THREE.Mesh(new THREE.PlaneGeometry(40, 16), inGloss); inFloor.rotation.x = -Math.PI / 2; inFloor.position.y = 0.31; bld.add(inFloor);
+  const inGloss = envE(M.blackGloss().clone(), 0.012); // indoors under the roof: barely any sky in the gloss
+  const inFloor = new THREE.Mesh(new THREE.PlaneGeometry(40, 16), inGloss); inFloor.rotation.x = -Math.PI / 2; inFloor.position.y = 0.31; bld.add(inFloor);
   const inCars = [];
   [['classic', 0x3d0b12, -13], ['gt', 0x9a9b9f, -4.5], ['prototype', 0xcdb48a, 4.5], ['supercar', 0x0b0b0c, 13]].forEach(([preset, color, x], i) => {
     const plat = mesh(roundBox(5.2, 0.14, 2.7, 0.05), inGloss, { p: [x, 0.38, 1.5] }); bld.add(plat);

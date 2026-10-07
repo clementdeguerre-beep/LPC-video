@@ -203,7 +203,6 @@ function dressCoast(coast, { scene, sunDir, grass, water, dirt }) {
     Col.setXYZ(i, tmp.r, tmp.g, tmp.b);
   }
   Col.needsUpdate = true;
-  console.warn('S6DBG dc0', (performance.now()/1000).toFixed(1));
   // --- baked sun shadows (terrain self-shadow + long pine shadows) into a 1024² ground map
   const SEG = Math.round(Math.sqrt(P.count)) - 1, SIZE = 700, half = SIZE / 2, cell = SIZE / SEG;
   const H = (x, z) => { const fx = clamp((x + half) / cell, 0, SEG - 1e-3), fz = clamp((z + half) / cell, 0, SEG - 1e-3); const ix = Math.floor(fx), iz = Math.floor(fz), tx = fx - ix, tz = fz - iz; const at = (a, b) => P.getY(b * (SEG + 1) + a); return lerp(lerp(at(ix, iz), at(ix + 1, iz), tx), lerp(at(ix, iz + 1), at(ix + 1, iz + 1), tx), tz); };
@@ -218,7 +217,6 @@ function dressCoast(coast, { scene, sunDir, grass, water, dirt }) {
   }
   sc.putImageData(img, 0, 0); c2.filter = 'blur(2px)'; c2.drawImage(small, 0, 0, RES, RES); c2.filter = 'none';
   const px = (x) => ((x + half) / SIZE) * RES; const m4 = new THREE.Matrix4(), pp = new THREE.Vector3(), qq = new THREE.Quaternion(), ss = new THREE.Vector3();
-  console.warn('S6DBG dc1', (performance.now()/1000).toFixed(1));
   // --- maquis shrubs and limestone boulders in clumps around the filmed stretch (scale cues for 6.5 and the aerial)
   const g1 = grass.clone(); g1.wrapS = g1.wrapT = THREE.RepeatWrapping; g1.needsUpdate = true;
   const rp = road.getSpacedPoints(400), seaY = sea.position.y; const roadDist = (x, z) => { let b = 1e9; for (const q of rp) { const dx = q.x - x, dz = q.z - z; const d = dx * dx + dz * dz; if (d < b) b = d; } return Math.sqrt(b); };
@@ -237,13 +235,11 @@ function dressCoast(coast, { scene, sunDir, grass, water, dirt }) {
   c2.globalCompositeOperation = 'multiply'; c2.filter = 'blur(3px)'; c2.fillStyle = 'rgb(70,70,70)';
   const stamp = (mesh, top, rad) => { for (let i = 0; i < mesh.count; i++) { mesh.getMatrixAt(i, m4); m4.decompose(pp, qq, ss); const L = (top * ss.y) / tanE; const cx = pp.x + sd.x * (L * 0.5 + 1), cz = pp.z + sd.z * (L * 0.5 + 1);
     c2.save(); c2.translate(px(cx), px(cz)); c2.rotate(Math.atan2(sd.z, sd.x)); c2.beginPath(); c2.ellipse(0, 0, (L * 0.5 + rad * ss.x) / SIZE * RES, (rad * ss.x) / SIZE * RES, 0, 0, TAU); c2.fill(); c2.restore(); } };
-  console.warn('S6DBG dc2', (performance.now()/1000).toFixed(1));
   stamp(tops, 6.2, 2.6); stamp(cyp, 8.0, 1.0); stamp(shrubs, 1.0, 0.9); stamp(rocks, 0.6, 0.9);
   c2.globalCompositeOperation = 'source-over'; c2.filter = 'none';
   terrain.material = photoGround(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0 }), { grass: g1, shadow: shadowTex, rock: 1 });
   { const ix = roadMesh.geometry.index.array; for (let i = 0; i < ix.length; i += 3) { const k = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = k; } roadMesh.geometry.computeVertexNormals(); } // the ribbon was wound face-down (culled from above)
   roadMesh.material = photoGround(roadMesh.material.clone(), { shadow: shadowTex }); roadMesh.material.roughness = 0.62;
-  console.warn('S6DBG dc3', (performance.now()/1000).toFixed(1));
   // --- pines: smooth clumped umbrella crowns on forked trunks, cypresses on short trunks; photo needle grain (triplanar, per instance)
   tops.geometry = pineCrown(9); tops.material = photoGround(new THREE.MeshStandardMaterial({ color: 0x55663a, vertexColors: true, roughness: 0.9 }), { grass: g1, detail: 0.95, scaleA: 0.9, scaleB: 0.16 });
   cyp.geometry = cypressGeo(); cyp.material = photoGround(new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.9 }), { grass: g1, detail: 0.95, scaleA: 0.9, scaleB: 0.16 });
@@ -256,7 +252,6 @@ function dressCoast(coast, { scene, sunDir, grass, water, dirt }) {
   const NP = wBeam.length; for (let k = 0; k < K; k++) for (let j = 0; j < NP - 1; j++) { const a = k * NP + j, b = a + NP; idx.push(a, b, a + 1, a + 1, b, b + 1); }
   const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); rg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); rg.setIndex(idx); rg.computeVertexNormals();
   coast.add(new THREE.Mesh(rg, galvanised(scene, dirt, { color: 0x8f9195, side: THREE.DoubleSide })));
-  console.warn('S6DBG dc4', (performance.now()/1000).toFixed(1));
   // --- sea: two scales of photographed wave normals, drifting; reflects the real sunset sky
   const w1 = water.clone(), w2 = water.clone(); w1.wrapS = w1.wrapT = w2.wrapS = w2.wrapT = THREE.RepeatWrapping; w1.repeat.set(160, 160); w2.repeat.set(700, 700); w1.needsUpdate = w2.needsUpdate = true;
   sea.material = new THREE.MeshPhysicalMaterial({ color: 0x041821, roughness: 0.12, metalness: 0, normalMap: w1, normalScale: new THREE.Vector2(0.55, 0.55), clearcoat: 1, clearcoatRoughness: 0.02, clearcoatNormalMap: w2, clearcoatNormalScale: new THREE.Vector2(0.45, 0.45), specularIntensity: 1 });
@@ -423,7 +418,6 @@ export async function buildS6(ctx) {
     const wx = tyreCar.group.position.x + tyreCar.shape.wheels[0].x; const d = aim(cam, v3(wx + 0.55, 0.05, 1.2), v3(wx + 0.05, 0.06, 0.72), { fov: 30, near: 0.01, far: 60 }); return { focus: d, aperture: 12 };
   }, { trans: { type: 'luma', dur: 0.5 }, grade: { exposure: 1.2, bloom: 0.45, streak: 0.25, threshold: 1.2, gain: [1.06, 1.0, 0.9] } }));
 
-  console.warn('S6DBG 0', (performance.now()/1000).toFixed(1));
   // ---------------------------------------------------------------- 6.2 brake disc glowing
   // A real hot iron disc behind the wire spokes: machined, cross-drilled, glowing by temperature (red rim → yellow swept band),
   // gripped by a champagne-gold caliper; exposure held so the disc keeps its detail.
@@ -441,7 +435,6 @@ export async function buildS6(ctx) {
     return { focus: d, aperture: 10 };
   }, { trans: { type: 'flash', dur: 0.3 }, grade: { exposure: 0.85, bloom: 0.45, streak: 0.18, threshold: 1.4 } }));
 
-  console.warn('S6DBG 1', (performance.now()/1000).toFixed(1));
   // ---------------------------------------------------------------- 6.3 gearshift into the gate
   const gs = makeSet(null, { bg: null }); const G = gs.scene;
   await useHdri(G, HDRI.interiorWarm, { env: 0.8, background: true, blur: 0.35, bgIntensity: 0.12, rotation: 1.2 });
@@ -471,19 +464,16 @@ export async function buildS6(ctx) {
     const d = aim(cam, v3(lerp(0.3, 0.26, u), lerp(0.24, 0.2, u), 0.34), v3(0.0, 0.085, -0.01), { fov: 32, near: 0.005, far: 20 }); return { focus: d, aperture: 8 };
   }, { trans: { type: 'whip', dur: 0.3, dir: [1, 0] }, grade: { exposure: 1.15, bloom: 0.45, streak: 0.22, threshold: 1.3, gain: [1.05, 1.0, 0.9] } }));
 
-  console.warn('S6DBG 2', (performance.now()/1000).toFixed(1));
   // ---------------------------------------------------------------- 6.5/6.6 the coast (built before the visor so it can be reflected)
   // Real sunset over the sea (Venice lagoon panorama) for sky light, paint/chrome/sea reflections and the backdrop; photo-detailed
   // terrain with baked long golden-hour shadows (terrain + pines), photo-normal-mapped sea, Armco along the cliff edge.
   const cs = makeSet(null, { bg: null, fog: new THREE.Fog(0xc99a74, 260, 1500) }); const C = cs.scene;
   const SUN_PHI = 2.78, ROT5 = (VENICE_SUN[0] - 0.5) * TAU - SUN_PHI;
   await useHdri(C, HDRI.sunsetSea, { env: 0.9, background: true, blur: 0.03, bgIntensity: 0.9, rotation: ROT5 });
-  console.warn('S6DBG 3', (performance.now()/1000).toFixed(1));
   const coast = buildCoast({}); C.add(coast);
   const sunDir5 = v3(Math.cos(0.24) * Math.cos(SUN_PHI), Math.sin(0.24), Math.cos(0.24) * Math.sin(SUN_PHI)); // key light on the panorama's sun azimuth, 14° up
   const sun = dirLight(C, { color: 0xffc58a, intensity: 3.4, pos: sunDir5.clone().multiplyScalar(500).toArray() });
   const coastFx = dressCoast(coast, { scene: C, sunDir: sunDir5, grass: grassPhoto, water: waterN, dirt });
-  console.warn('S6DBG 4', (performance.now()/1000).toFixed(1));
   const convoyPresets = [['classic', 0x050505], ['gt', 0x3d0b12], ['roadster', 0x101a14], ['supercar', 0x9a9b9f], ['classic', 0xcdb48a]];
   const sunAng5 = Math.atan2(-sunDir5.z, -sunDir5.x);
   const convoy = convoyPresets.map(([p, c], i) => { const car = buildCar(p, { lite: true, color: c, seed: 100 + i }); car.lights(0.4, 1); C.add(car.group); const sh = carShadow(car.spec.L, 1.9, { sun: sunDir5, long: 7, strength: 0.85 }); car.group.add(sh); car.shadow = sh; return car; });
@@ -491,7 +481,6 @@ export async function buildS6(ctx) {
   const convoyAt = (t) => { const s0 = 0.06 + (t - 52.5) * (17 / roadLen); convoy.forEach((car, i) => { const { p, heading } = coast.userData.onRoad(s0 - i * (16 / roadLen)); car.group.position.copy(p); car.group.rotation.y = heading; car.spin((t - 50) * 50); car.shadow.userData.long.rotation.y = -sunAng5 - heading; }); return s0; };
   cs.onUpdate((t) => { convoyAt(t); coastFx.update(t); });
 
-  console.warn('S6DBG 5', (performance.now()/1000).toFixed(1));
   // ---------------------------------------------------------------- 6.4 helmet visor reflecting the road
   const hs = makeSet(null, { bg: 0x000000 }); const H = hs.scene;
   // live capture of the coast road at golden hour (real sunset panorama + road, Armco, sea) → the visor's reflection
@@ -529,7 +518,6 @@ export async function buildS6(ctx) {
     const d = aim(cam, p, mid, { fov: lerp(28, 46, smooth(u)), near: 1, far: 3000 }); cam.up.set(0, 1, 0); return { focus: d, aperture: 0 };
   }, { trans: { type: 'zoom', dur: 0.5, center: [0.5, 0.5] }, grade: { exposure: 1.05, bloom: 0.45, streak: 0.25, threshold: 1.3, gain: [1.08, 1.0, 0.86] } }));
 
-  console.warn('S6DBG 6', (performance.now()/1000).toFixed(1));
   // ---------------------------------------------------------------- 6.7 circuit: slow-motion pass with sparks
   // Real low sun: the sunrise-field panorama lights the scene (IBL + reflections) and, defocused, is the photographic backdrop.
   // The racer is the photoreal concept car; the concrete wall becomes a galvanised Armco rail + catch fence.
@@ -538,7 +526,6 @@ export async function buildS6(ctx) {
   const sunDir7 = panoDir(SPRUIT_SUN[0], SPRUIT_SUN[1], ROT7);
   CI.add(panoDome(pano4k, { rotation: ROT7, intensity: 0.8, warm: 0.7, sun: sunDir7 })); // golden-hour sky throughout the pass, not a cool dawn
   await useHdri(CI, HDRI.sunriseField, { env: 0.85, rotation: ROT7 });
-  console.warn('S6DBG 7', (performance.now()/1000).toFixed(1));
   const circuit = buildCircuit(); CI.add(circuit);
   for (const o of [...circuit.children]) {
     const gp = o.geometry?.parameters ?? {};
@@ -550,17 +537,14 @@ export async function buildS6(ctx) {
     else if (gp.height === 3.5) circuit.remove(o); // bare poles → catch-fence posts below
   }
   CI.add(trackside(CI, fenceTex, dirt));
-  console.warn('S6DBG 8', (performance.now()/1000).toFixed(1));
   const racer = await conceptRacer({ length: 4.45 }); CI.add(racer.group); racer.lights(1, 1);
   racer.group.add(carShadow(4.45, 1.95, { sun: sunDir7, long: 9 }));
   sunSprite(CI, flare0, sunDir7, { size: 320, intensity: 5 });
-  console.warn('S6DBG 9', (performance.now()/1000).toFixed(1));
   const sparks = sparkStream(1100, ctx.res); CI.add(sparks);
   ci.onUpdate((t) => { const lt = t - 59.4; const x = -14 + lt * 9.5; racer.group.position.set(x, 0.0, -1.5); racer.group.rotation.y = 0; racer.spin(x / racer.radius); sparks.position.set(x + 0.4, 0.05, -1.5); sparks.material.uniforms.time.value = lt * 0.6; sparks.material.uniforms.on.value = smooth(clamp(lt / 0.3)); });
   shots.push(shot('s6.7', 59.4, 62.0, ci, (lt, u, cam) => {
     const x = racer.group.position.x; const d = aim(cam, v3(lerp(-4, 6, u), 0.35, 4.2), v3(x + 0.6, 0.45, -1.5), { fov: 36, near: 0.05, far: 2000 }); return { focus: d, aperture: 5 };
   }, { trans: { type: 'whip', dur: 0.4, dir: [1, 0] }, grade: { exposure: 1.1, bloom: 0.6, streak: 0.35, threshold: 1.1, gain: [1.1, 1.0, 0.84] } }));
-  console.warn('S6DBG 10', (performance.now()/1000).toFixed(1));
   return { shots };
 }
 
