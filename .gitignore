@@ -9,3 +9,4 @@ renders/*.log
 renders/review/
 renders/*.mp4
 *.bundle
+renders/v1/
